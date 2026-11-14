@@ -5,8 +5,13 @@ Each entry is a dict because the actual Feed instances are constructed in
 feeds/__init__.py (avoids a circular import: feeds import from config,
 config imports feeds). The scheduler reads FEED_REGISTRY to know what to
 run; the API reads it to advertise categories to the frontend.
+
+Severity scoring (Layer 1, news only) also lives here deliberately: retuning
+keywords/weights is a data change, not a code change. score_headline() and
+match_keywords() are pure and do no I/O (safe under read_only Docker FS).
 """
 import os
+import re
 
 # --- NASA API key ---------------------------------------------------------
 # DEMO_KEY works immediately with a 30 req/hr limit. That is enough for the
@@ -112,3 +117,102 @@ FLIGHT_INTERESTING_TYPES = {
     # Heavy lift (optional — remove if too noisy)
     "C5", "C17", "C130", "A400", "C40",
 }
+
+# --- Severity scoring (Layer 1: news only) --------------------------------
+# Tunable in one place. Per-match weights; multi-word keywords match as
+# phrases on word boundaries. Case-insensitive over title + " " + description.
+SEVERITY_BASE = 10
+SEVERITY_MIN, SEVERITY_MAX = 0, 100
+SEVERITY_MEDIUM, SEVERITY_HIGH = 40, 70
+
+# (weight, [keywords]). Order does not matter: score_headline() evaluates
+# crisis groups first, then negatives, so the -10 rule is order-independent.
+SEVERITY_WEIGHTS = [
+    (40, ["invasion", "airstrike", "missile", "mobilization", "nuclear"]),
+    (30, ["killed", "casualties", "massacre", "fatalities", "wounded"]),
+    (25, ["outage", "blackout", "collapse", "cyberattack", "breached"]),
+    (20, ["emergency", "evacuation", "quarantine", "pandemic"]),
+    (20, ["sanctions", "coup", "martial law", "state of emergency"]),
+    (-20, ["coach", "transfer", "signing", "contract"]),
+    (-20, ["celebrity", "wedding", "divorce", "birthday"]),
+    (-10, ["earnings", "stock price", "quarterly"]),
+]
+
+# Indices into SEVERITY_WEIGHTS that count as "crisis" for the -10 rule.
+SEVERITY_CRISIS_GROUPS = {0, 1, 2, 3, 4}
+
+# Global-scale terms: count as crisis AND add SEVERITY_GLOBAL_WEIGHT per match.
+# Option 2: ensures "Microsoft global outage hits millions" scores >70.
+# Remove "millions" if ordinary headlines ("millions raised") get too hot.
+SEVERITY_CRISIS_EXTRA = ["global", "millions", "nationwide", "worldwide"]
+SEVERITY_GLOBAL_WEIGHT = 25
+
+
+def _compile_severity():
+    out = []
+    for gi, (w, kws) in enumerate(SEVERITY_WEIGHTS):
+        pats = [
+            re.compile(
+                r"\b" + r"\s+".join(re.escape(p) for p in kw.split()) + r"\b",
+                re.IGNORECASE,
+            )
+            for kw in kws
+        ]
+        out.append((gi, w, kws, pats))
+    return out
+
+
+_GLOBAL_RE = re.compile(
+    r"\b(" + "|".join(re.escape(t) for t in SEVERITY_CRISIS_EXTRA) + r")\b",
+    re.IGNORECASE,
+)
+_SEV = _compile_severity()
+
+
+def match_keywords(title: str, description: str) -> list[str]:
+    """Matched keywords for tags/burn-in. De-duped, stable order. Pure."""
+    hay = (title or "") + " " + (description or "")
+    seen: set[str] = set()
+    out: list[str] = []
+    for _gi, _w, kws, pats in _SEV:
+        for kw, pat in zip(kws, pats):
+            key = kw.lower()
+            if key not in seen and pat.search(hay):
+                seen.add(key)
+                out.append(kw)
+    for m in _GLOBAL_RE.findall(hay):
+        key = m.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
+
+
+def score_headline(title: str, description: str) -> int:
+    """Score a news headline 0-100. Pure; no I/O. Per-match.
+
+    Two-pass so the -10 earnings rule does not depend on list ordering:
+    crisis groups + global terms first, then negatives (skipping -10 if any
+    crisis term matched).
+    """
+    hay = (title or "") + " " + (description or "")
+    total = SEVERITY_BASE
+    crisis = bool(_GLOBAL_RE.search(hay))
+
+    for gi, w, _kw, pats in _SEV:
+        if gi in SEVERITY_CRISIS_GROUPS:
+            hits = sum(len(p.findall(hay)) for p in pats)
+            if hits:
+                crisis = True
+            total += w * hits
+
+    total += SEVERITY_GLOBAL_WEIGHT * len(_GLOBAL_RE.findall(hay))
+
+    for gi, w, _kw, pats in _SEV:
+        if gi in SEVERITY_CRISIS_GROUPS:
+            continue
+        if w == -10 and crisis:
+            continue
+        total += w * sum(len(p.findall(hay)) for p in pats)
+
+    return max(SEVERITY_MIN, min(SEVERITY_MAX, total))
