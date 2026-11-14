@@ -1,0 +1,82 @@
+/* Retro Scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #05080a; border-left: 1px solid #153238; }
+::-webkit-scrollbar-thumb { background: #15803d; }
+::-webkit-scrollbar-thumb:hover { background: #22c55e; }
+
+/* CRT Scanline Overlay */
+.crt::before {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0; right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+    z-index: 50;
+    background-size: 100% 3px, 6px 100%;
+    pointer-events: none;
+    opacity: 0.85;
+}
+.crt::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0; right: 0;
+    background: rgba(18, 16, 16, 0.03);
+    opacity: 0;
+    z-index: 50;
+    pointer-events: none;
+    animation: flicker 0.15s infinite;
+}
+@keyframes flicker {
+    0% { opacity: 0.25; }
+    50% { opacity: 0.55; }
+    100% { opacity: 0.25; }
+}
+
+/* CRT Glow */
+.glow-green   { text-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
+.glow-amber   { text-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }
+.glow-cyan    { text-shadow: 0 0 6px rgba(6, 182, 212, 0.7); }
+.glow-magenta { text-shadow: 0 0 6px rgba(236, 72, 153, 0.7); }
+.glow-red     { text-shadow: 0 0 7px rgba(239, 68, 68, 0.8); }
+
+.blinking { animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Keyword burn-in (from event tags) */
+.kw-magenta { background-color: #ec4899; color: #000; font-weight: bold; padding: 0 3px; }
+.kw-cyan    { background-color: #06b6d4; color: #000; font-weight: bold; padding: 0 3px; }
+.kw-amber   { background-color: #f59e0b; color: #000; font-weight: bold; padding: 0 3px; }
+.kw-red     { background-color: #ef4444; color: #fff; font-weight: bold; padding: 0 3px; }
+
+/* Ticker */
+@keyframes ticker {
+    0%   { transform: translate3d(100%, 0, 0); }
+    100% { transform: translate3d(-100%, 0, 0); }
+}
+.ticker-wrap { width: 100%; overflow: hidden; white-space: nowrap; }
+.ticker-move {
+    display: inline-block; white-space: nowrap; padding-right: 100%;
+    animation: ticker 90s linear infinite;
+}
+.ticker-move:hover { animation-play-state: paused; }
+
+/* --- New in this fork: provenance + health --- */
+.tag-pill {
+    display: inline-block;
+    font-size: 9px;
+    padding: 0 4px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    margin-left: 4px;
+    vertical-align: middle;
+    opacity: 0.85;
+}
+.tag-pill.src   { color: #06b6d4; }
+.tag-pill.cat   { color: #f59e0b; }
+
+.health-row { display: flex; justify-content: space-between; align-items: center; }
+.health-ok   { color: #22c55e; }
+.health-stale { color: #f59e0b; }
+.health-err  { color: #ef4444; }

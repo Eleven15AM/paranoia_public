@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PARANOIA! v1.0 - Global Anomaly Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=VT323&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        mono: ['"Fira Code"', 'VT323', 'monospace'],
+                        vt: ['VT323', 'monospace']
+                    },
+                    colors: {
+                        nix: {
+                            bg: '#05080a',
+                            panel: '#091114',
+                            border: '#153238',
+                            borderBright: '#225d67',
+                            green: '#22c55e',
+                            greenDim: '#15803d',
+                            cyan: '#06b6d4',
+                            cyanDim: '#0891b2',
+                            amber: '#f59e0b',
+                            magenta: '#ec4899',
+                            red: '#ef4444',
+                            blue: '#3b82f6',
+                            yellow: '#eab308'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="/css/terminal.css">
+</head>
+<body class="bg-nix-bg text-nix-green font-mono h-screen w-screen overflow-hidden flex flex-col select-none crt relative" id="app-body">
+
+    <!-- TOP HEADER -->
+    <header class="bg-nix-panel border-b-2 border-nix-border px-3 py-1.5 flex flex-wrap justify-between items-center text-xs sm:text-sm z-40">
+        <div class="flex items-center space-x-2">
+            <span class="text-nix-cyan font-bold glow-cyan">╔═[ PARANOIA! ]═╗</span>
+            <span class="text-gray-400 hidden md:inline">GLOBAL ANOMALY MONITOR v1.0.0</span>
+        </div>
+        <div class="flex items-center space-x-3 text-xs">
+            <div class="hidden sm:flex items-center space-x-1">
+                <span class="text-gray-500">SYS:</span>
+                <span id="sys-status" class="text-nix-green font-bold blinking glow-green">● ONLINE</span>
+            </div>
+            <div class="border-l border-nix-border h-4 hidden sm:block"></div>
+            <div class="text-nix-amber font-bold glow-amber" id="clock-display">00:00:00 UTC</div>
+        </div>
+    </header>
+
+    <!-- MAIN GRID -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-2 p-2 overflow-hidden text-xs">
+
+        <!-- LEFT COLUMN: FEED HEALTH + SESSION STATS -->
+        <section class="lg:col-span-3 flex flex-col gap-2 overflow-hidden">
+
+            <!-- FEED HEALTH -->
+            <div class="bg-nix-panel border border-nix-border hover:border-nix-borderBright transition-colors p-2 flex flex-col">
+                <div class="text-nix-cyan font-bold border-b border-nix-border pb-1 flex justify-between items-center">
+                    <span>┌─ FEED HEALTH ─┐</span>
+                    <span id="health-summary" class="text-[10px] text-gray-500">--/-- OK</span>
+                </div>
+                <div id="health-list" class="my-2 space-y-1 text-[11px] font-mono">
+                    <!-- Populated by panels.js: one row per feed -->
+                    <div class="text-gray-500 italic">awaiting first poll…</div>
+                </div>
+                <div class="text-[10px] text-gray-500 border-t border-nix-border/40 pt-1">
+                    A stale or errored feed is shown as such. No source is hidden.
+                </div>
+            </div>
+
+            <!-- SESSION STATS -->
+            <div class="bg-nix-panel border border-nix-border hover:border-nix-borderBright transition-colors p-2 flex-1 flex flex-col justify-between overflow-y-auto">
+                <div class="text-nix-cyan font-bold border-b border-nix-border pb-1">
+                    ┌─ SESSION STATS ─┐
+                </div>
+                <div class="space-y-1.5 my-1 text-[11px]">
+                    <div class="bg-black/50 p-1.5 border border-nix-border/40 flex justify-between">
+                        <span class="text-gray-400">TOTAL EVENTS:</span>
+                        <span id="stat-total" class="text-nix-cyan font-bold">0</span>
+                    </div>
+                    <div class="bg-black/50 p-1.5 border border-nix-border/40 flex justify-between">
+                        <span class="text-gray-400">NEWS:</span>
+                        <span id="stat-news" class="text-nix-magenta font-bold">0</span>
+                    </div>
+                    <div class="bg-black/50 p-1.5 border border-nix-border/40 flex justify-between">
+                        <span class="text-gray-400">SPACE:</span>
+                        <span id="stat-space" class="text-nix-yellow font-bold">0</span>
+                    </div>
+                    <div class="bg-black/50 p-1.5 border border-nix-border/40 flex justify-between">
+                        <span class="text-gray-400">QUAKE:</span>
+                        <span id="stat-quake" class="text-nix-amber font-bold">0</span>
+                    </div>
+                    <div class="bg-black/50 p-1.5 border border-nix-border/40 flex justify-between">
+                        <span class="text-gray-400">FLIGHT:</span>
+                        <span id="stat-flight" class="text-nix-cyan font-bold">0</span>
+                    </div>
+                    <div class="bg-black/50 p-1.5 border border-nix-border/40 flex justify-between">
+                        <span class="text-gray-400">NEO:</span>
+                        <span id="stat-neo" class="text-nix-yellow font-bold">0</span>
+                    </div>
+                    <div class="bg-black/50 p-1.5 border border-nix-border/40 flex justify-between">
+                        <span class="text-gray-400">COMMODITY:</span>
+                        <span id="stat-commodity" class="text-nix-green font-bold">0</span>
+                    </div>
+                </div>
+                <div class="text-[10px] text-gray-500 border-t border-nix-border/40 pt-1">
+                    Counts reflect the merged /api/events payload, not a derived score.
+                </div>
+            </div>
+
+        </section>
+
+        <!-- CENTER COLUMN: EVENT STREAM (EXPANDED) -->
+        <section class="lg:col-span-9 flex flex-col bg-nix-panel border border-nix-border hover:border-nix-borderBright transition-colors p-2 overflow-hidden relative">
+
+            <div class="text-nix-cyan font-bold border-b border-nix-border pb-1 flex justify-between items-center">
+                <span>┌─ LIVE EVENT STREAM ─┐</span>
+                <span class="text-[10px] text-nix-green blinking">● RECV</span>
+            </div>
+
+            <div id="filter-bar" class="flex flex-wrap gap-1 my-1.5 text-[10px]">
+                <button class="filter-btn active bg-nix-cyan text-black px-1.5 py-0.5 font-bold" data-filter="ALL">ALL</button>
+                <button class="filter-btn bg-black text-gray-400 border border-nix-border px-1.5 py-0.5" data-filter="NEWS">NEWS</button>
+                <button class="filter-btn bg-black text-gray-400 border border-nix-border px-1.5 py-0.5" data-filter="SPACE">SPACE</button>
+                <button class="filter-btn bg-black text-gray-400 border border-nix-border px-1.5 py-0.5" data-filter="QUAKE">QUAKE</button>
+                <button class="filter-btn bg-black text-gray-400 border border-nix-border px-1.5 py-0.5" data-filter="FLIGHT">FLIGHT</button>
+                <button class="filter-btn bg-black text-nix-red border border-nix-red/40 px-1.5 py-0.5" data-filter="SQUAWK">SQUAWK</button>
+                <button class="filter-btn bg-black text-gray-400 border border-nix-border px-1.5 py-0.5" data-filter="NEO">NEO</button>
+                <button class="filter-btn bg-black text-gray-400 border border-nix-border px-1.5 py-0.5" data-filter="COMMODITY">COMMODITY</button>
+            </div>
+
+            <div id="log-terminal"
+                 class="flex-1 bg-black p-2 border border-nix-border/60 overflow-y-auto font-mono text-[11px] leading-relaxed space-y-2">
+                <div class="text-gray-500 italic">awaiting first poll…</div>
+            </div>
+
+            <!-- Dossier drawer (was inside the radar panel) -->
+            <div id="dossier-panel"
+                 class="bg-black/95 border border-nix-amber p-2 text-xs hidden absolute bottom-12 left-2 right-2 z-30 shadow-2xl">
+                <div class="flex justify-between text-nix-amber font-bold mb-1 border-b border-nix-amber/40 pb-0.5">
+                    <span id="dossier-title">> DOSSIER</span>
+                    <button id="dossier-close" class="hover:text-white px-1">[X]</button>
+                </div>
+                <div id="dossier-body" class="text-gray-300 font-mono text-[11px] space-y-1">
+                    Select an event to inspect…
+                </div>
+            </div>
+
+            <div class="mt-1.5 text-[10px] text-gray-500 border-t border-nix-border/40 pt-1 flex justify-between">
+                <span>SOURCE TAGS ACTIVE</span>
+                <span id="log-count">0000 EVTS</span>
+            </div>
+
+            <!-- Controls strip (unchanged content, moved here) -->
+            <div class="mt-1 flex flex-col sm:flex-row gap-2 justify-between items-center border-t border-nix-border/40 pt-1.5">
+                <div class="w-full sm:w-1/2 bg-black p-2 border border-nix-border flex flex-col justify-center text-[11px]">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">LAST POLL:</span>
+                        <span id="last-poll" class="text-nix-cyan font-bold">--</span>
+                    </div>
+                    <div class="flex justify-between mt-0.5">
+                        <span class="text-gray-400">NEXT IN:</span>
+                        <span id="next-poll" class="text-nix-amber font-bold">--</span>
+                    </div>
+                </div>
+                <div class="w-full sm:w-1/2 flex flex-wrap gap-1.5 justify-end text-xs">
+                    <button id="btn-scanlines" class="bg-nix-border hover:bg-nix-borderBright text-nix-green px-2 py-1 border border-nix-green/30 rounded">[CRT: ON]</button>
+                    <button id="btn-audio" class="bg-nix-border hover:bg-nix-borderBright text-nix-green px-2 py-1 border border-nix-green/30 rounded">[AUDIO: ON]</button>
+                    <button id="btn-pause" class="bg-nix-border hover:bg-nix-borderBright text-nix-green px-2 py-1 border border-nix-green/30 rounded">[FEED: LIVE]</button>
+                </div>
+            </div>
+
+        </section>
+
+
+    </main>
+
+    <!-- BOTTOM TICKER -->
+    <footer class="bg-black border-t-2 border-nix-border px-2 py-1 text-xs text-gray-400 flex items-center overflow-hidden z-40">
+        <div class="bg-nix-panel text-nix-red font-bold px-2 py-0.5 border-r border-nix-border mr-2 shrink-0 flex items-center space-x-1">
+            <span class="blinking">ALERT:</span>
+            <span>FLASH</span>
+        </div>
+        <div class="ticker-wrap flex-1 text-nix-amber text-xs font-mono">
+            <div class="ticker-move" id="ticker-content">--- awaiting feed data ---</div>
+        </div>
+    </footer>
+
+    <!-- JS bundles (load order matters: audio → stream → panels → app) -->
+    <script src="/js/audio.js"></script>
+    <script src="/js/stream.js"></script>
+    <script src="/js/panels.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

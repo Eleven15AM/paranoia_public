@@ -1,0 +1,19 @@
+services:
+  paranoia:
+    build: .
+    image: paranoia:latest
+    container_name: paranoia
+    ports:
+      - "8080:8080"
+    environment:
+      # DEMO_KEY works immediately with a 30 req/hr limit. Set a real key
+      # from https://api.nasa.gov/ to raise it to 1000/hr.
+      NASA_API_KEY: ${NASA_API_KEY:-DEMO_KEY}
+    restart: unless-stopped
+    # Read-only filesystem is enough; the app does not write to disk.
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Drop all capabilities; nothing here needs any.
+    cap_drop:
+      - ALL
