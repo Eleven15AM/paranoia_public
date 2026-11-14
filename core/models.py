@@ -24,6 +24,7 @@ class Event:
     lon: Optional[float] = None
     symbol: str = "●"             # radar marker; set by each feed
     tags: list[str] = field(default_factory=list)  # burn-in keywords
+    severity: int = 0             # 0-100; Layer 1 scores NEWS only, others stay 0
 
     def to_dict(self) -> dict:
         d = asdict(self)
