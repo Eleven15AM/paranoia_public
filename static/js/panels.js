@@ -12,6 +12,7 @@
         total:  document.getElementById('stat-total'),
         alerts: document.getElementById('stat-alerts'),
         NEWS:   document.getElementById('stat-news'),
+        VELOCITY: document.getElementById('stat-velocity'),
         SPACE:  document.getElementById('stat-space'),
         QUAKE:  document.getElementById('stat-quake'),
         FLIGHT: document.getElementById('stat-flight'),
@@ -94,11 +95,11 @@
 
         updateStats(events) {
             // Initialize every category explicitly. Adding a category here
-            // is required when a new feed starts emitting it; unknown
-            // categories are counted in `unknown` and logged once so the
-            // next addition is not a silent zero.
+            // is required when a new feed (or synthetic event type) starts
+            // emitting it; unknown categories are counted in `unknown` and
+            // logged once so the next addition is not a silent zero.
             const byCat = {
-                NEWS: 0, SPACE: 0, QUAKE: 0, FLIGHT: 0, NEO: 0, COMMODITY: 0,
+                NEWS: 0, VELOCITY: 0, SPACE: 0, QUAKE: 0, FLIGHT: 0, NEO: 0, COMMODITY: 0,
             };
             let unknown = 0;
             let alerts = 0;

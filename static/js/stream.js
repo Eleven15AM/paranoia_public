@@ -6,7 +6,10 @@
 //   - the bottom ticker
 //
 // Layer 1: severity tiers. Thresholds mirror config.py (SEVERITY_MEDIUM/HIGH).
-// Keep in sync — api/routes.py does not currently expose /api/config.
+// Layer 2: VELOCITY category renders like any event (severity 75 → red tier).
+//          NEWS and VELOCITY cards show the full date; other feeds keep HH:MM:SSZ.
+// Keep thresholds in sync with config.py — api/routes.py does not currently
+// expose /api/config.
 (function () {
     const SEVERITY_MEDIUM = 40;
     const SEVERITY_HIGH = 70;
@@ -23,6 +26,7 @@
 
     const CAT_COLOR = {
         NEWS:   'text-nix-magenta',
+        VELOCITY: 'text-nix-red',
         SPACE:  'text-nix-yellow',
         QUAKE:  'text-nix-amber',
         FLIGHT: 'text-nix-cyan',
@@ -39,6 +43,7 @@
         HAZARD: 'kw-red',
         MIL: 'kw-cyan',
         '7500': 'kw-red', '7600': 'kw-red', '7700': 'kw-red',
+        SURGE: 'kw-red',
     };
     // Map a full tag like "M6.2" to its class by first two chars
     function tagClass(tag) {
@@ -69,6 +74,18 @@
             .replace(/"/g, '&quot;');
     }
 
+    // Time display. NEWS and VELOCITY (news-derived) show the full date;
+    // other feeds keep the compact HH:MM:SSZ. Server sends ISO; this is a
+    // display-only transform and never touches user-supplied text.
+    function fmtTime(e) {
+        const iso = new Date(e.timestamp).toISOString(); // YYYY-MM-DDTHH:MM:SS.sssZ
+        if (e.category === 'NEWS' || e.category === 'VELOCITY') {
+            // YYYY-MM-DD HH:MM:SSZ
+            return iso.slice(0, 10) + ' ' + iso.slice(11, 19) + 'Z';
+        }
+        return iso.slice(11, 19) + 'Z';
+    }
+
     // Very narrow sanitizer: we build a small allowlist of <span class="...">
     // for tags. Everything else is escaped, so no user data reaches innerHTML
     // unescaped. This preserves the prototype's XSS guard.
@@ -85,9 +102,9 @@
             .join(' ');
     }
 
-    // Severity tier for NEWS only; non-NEWS or severity 0 → 'low' (current look).
+    // Severity tier for NEWS/VELOCITY only; other categories → 'low'.
     function severityTier(e) {
-        if (e.category !== 'NEWS') return 'low';
+        if (e.category !== 'NEWS' && e.category !== 'VELOCITY') return 'low';
         const s = Number(e.severity) || 0;
         if (s > SEVERITY_HIGH) return 'high';
         if (s > SEVERITY_MEDIUM) return 'medium';
@@ -95,7 +112,7 @@
     }
 
     function renderCard(e) {
-        const time = new Date(e.timestamp).toISOString().slice(11, 19);
+        const time = fmtTime(e);
         const catColor = CAT_COLOR[e.category] || 'text-nix-cyan';
         const src = escapeHtml(e.source_name);
         const title = escapeHtml(e.title);
@@ -124,7 +141,7 @@
         div.innerHTML = `
             <div class="flex justify-between text-[10px] text-gray-500 gap-2">
                 <span class="truncate">
-                    ${time}Z
+                    ${time}
                     <strong class="${catColor}">[${cat}]</strong>
                     <span class="text-gray-300">${src}</span>
                 </span>
@@ -175,7 +192,8 @@
 
     function openDossier(e) {
         dossierTitle.textContent = `> ${e.title || 'DOSSIER'} (${e.category || '?'})`;
-        const ts = e.timestamp ? new Date(e.timestamp).toISOString().replace('T', ' ').slice(0, 19) + 'Z' : 'LIVE';
+        // Full date for NEWS/VELOCITY; compact time for the rest (matches card).
+        const ts = e.timestamp ? fmtTime(e) : 'LIVE';
         const lat = e.lat != null ? e.lat.toFixed(2) : '—';
         const lon = e.lon != null ? e.lon.toFixed(2) : '—';
         dossierBody.innerHTML = `
@@ -234,7 +252,9 @@
                 totalCount++;
                 pushTicker(e);
                 if (isInitial) return;
-                // Audio triggers on genuinely new, high-severity events only
+                // Audio triggers on genuinely new, high-severity events only.
+                // VELOCITY is intentionally quiet: it fires from news cards
+                // already on screen, not as a new alert tone.
                 if (e.category === 'SPACE' && e.tags && e.tags.some((t) => t.startsWith('X'))) {
                     window.audio.playAlert();
                 }

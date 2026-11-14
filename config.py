@@ -6,9 +6,10 @@ feeds/__init__.py (avoids a circular import: feeds import from config,
 config imports feeds). The scheduler reads FEED_REGISTRY to know what to
 run; the API reads it to advertise categories to the frontend.
 
-Severity scoring (Layer 1, news only) also lives here deliberately: retuning
-keywords/weights is a data change, not a code change. score_headline() and
-match_keywords() are pure and do no I/O (safe under read_only Docker FS).
+Severity scoring (Layer 1, news only) and velocity detection (Layer 2, news
+only) also live here deliberately: retuning keywords/weights/windows is a
+data change, not a code change. score_headline(), match_keywords(), and the
+velocity helpers are pure and do no I/O (safe under read_only Docker FS).
 """
 import os
 import re
@@ -144,6 +145,7 @@ SEVERITY_CRISIS_GROUPS = {0, 1, 2, 3, 4}
 # Global-scale terms: count as crisis AND add SEVERITY_GLOBAL_WEIGHT per match.
 # Option 2: ensures "Microsoft global outage hits millions" scores >70.
 # Remove "millions" if ordinary headlines ("millions raised") get too hot.
+# Note: these are intentionally NOT used as velocity topic keys (see below).
 SEVERITY_CRISIS_EXTRA = ["global", "millions", "nationwide", "worldwide"]
 SEVERITY_GLOBAL_WEIGHT = 25
 
@@ -216,3 +218,45 @@ def score_headline(title: str, description: str) -> int:
         total += w * sum(len(p.findall(hay)) for p in pats)
 
     return max(SEVERITY_MIN, min(SEVERITY_MAX, total))
+
+
+# --- Velocity detection (Layer 2: news only) -----------------------------
+# A topic key crossing a threshold within a rolling window is itself an event.
+# Window state lives in core/velocity.py; everything tunable lives here.
+# No persistence: restarting the container starts with an empty window.
+
+# Curated seed topics. Add/remove freely; tuning is a data change.
+VELOCITY_TOPICS = [
+    "iran", "ukraine", "gaza", "israel", "china", "russia",
+    "openai", "election", "europe", "ai", "claude",
+]
+
+VELOCITY_WINDOW_SECONDS = 3600
+VELOCITY_MIN_SOURCES = 3
+VELOCITY_MIN_EVENTS = 3
+VELOCITY_COOLDOWN_SECONDS = 3600
+VELOCITY_MAX_KEYS = 500
+VELOCITY_SEVERITY = 75
+
+
+def _compile_velocity_topics():
+    """Compile VELOCITY_TOPICS plus the positive Layer 1 crisis keywords.
+
+    SEVERITY_CRISIS_EXTRA (global/millions/nationwide/worldwide) is
+    deliberately excluded: those are too generic to make a useful surge.
+    Returns (sorted_topic_key_list, compiled_regex).
+    """
+    keys = set(t.lower() for t in VELOCITY_TOPICS)
+    for gi, _w, kws, _pats in _SEV:
+        if gi in SEVERITY_CRISIS_GROUPS:
+            for kw in kws:
+                keys.add(kw.lower())
+    ordered = sorted(keys)
+    pattern = re.compile(
+        r"\b(" + "|".join(re.escape(k) for k in ordered) + r")\b",
+        re.IGNORECASE,
+    )
+    return ordered, pattern
+
+
+VELOCITY_KEYS, VELOCITY_RE = _compile_velocity_topics()

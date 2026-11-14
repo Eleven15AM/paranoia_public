@@ -41,6 +41,20 @@ class Scheduler:
         while not self._stop.is_set():
             try:
                 result = feed.fetch()
+
+                # Layer 2: velocity detection runs on real news events only.
+                # Synthetic VELOCITY events are appended before caching, so
+                # they flow through the same API and frontend path as every
+                # other event. Other feeds are untouched.
+                if feed.name == "news" and result.ok:
+                    from core.velocity import check as _velocity_check
+                    try:
+                        surges = _velocity_check(result.events)
+                        if surges:
+                            result.events.extend(surges)
+                    except Exception:
+                        log.exception("Velocity check failed; continuing without surges")
+
                 self._cache.set(result)
                 log.info(
                     "Feed %s: %d events (ok=%s)%s",

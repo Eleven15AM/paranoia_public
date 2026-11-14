@@ -184,30 +184,46 @@ no cleanup jobs. Do not add persistence unless the user explicitly asks.
 
 ## What is currently in progress
 
-Layer 1 (headline severity scoring) is implemented. `Event` now carries a
-`severity: int` (0–100, default 0); `config.score_headline()` and
-`config.match_keywords()` live in `config.py` so tuning is a data change.
-Only `feeds/news.py` calls them — all other feeds emit `severity=0` and
+Layer 1 (headline severity scoring) and Layer 2 (velocity detection) are
+implemented. Both are news-only; all other feeds emit `severity=0` and
 render unchanged.
 
-Rendering: `stream.js` applies three tiers (high >70 red border + bold +
-`[PIN]` + sorted to top of stream; medium 41–70 amber border; low ≤40
-unchanged). `panels.js` shows an ALERTS count (>70) in session stats.
-Thresholds are mirrored in `stream.js` / `panels.js` — `api/routes.py` does
-not yet expose `/api/config`, so keep them in sync by hand.
+Layer 1: `Event.severity: int` (0-100, default 0). `config.score_headline()`
+and `config.match_keywords()` live in `config.py` so tuning is a data change.
+Only `feeds/news.py` calls them.
 
-Known limitation from Layer 1: `SEVERITY_CRISIS_EXTRA` terms are generic
-(`global`, `millions`, …) and can add +25 to non-crisis headlines
-(e.g. "green turtles … global status"). Tune or remove in `config.py`.
+Layer 2: `core/velocity.py` keeps an in-memory rolling window of topic-key
+hits and emits one synthetic `VELOCITY` event per topic key per cooldown
+when the threshold is crossed. Called from `core/scheduler.py` after a
+successful news poll. Topic keys are `VELOCITY_TOPICS` plus the positive
+Layer 1 crisis keywords; `SEVERITY_CRISIS_EXTRA` is deliberately excluded
+(too generic). `VELOCITY` events carry `severity=75` and pins the
+`[PIN]` treatment automatically.
 
-Planned follow-up layers (do not implement while working on Layer 1):
-- Layer 2: velocity detection — same topic in multiple sources within a
-  time window. A surge in mentions is itself an event.
-- Layer 3: dedicated ALERTS panel above the stream, populated by
-  high-severity events only.
+Rendering: `stream.js` applies three severity tiers (high >70 red border +
+bold + `[PIN]` + sorted to top; medium 41-70 amber border; low <=40
+unchanged). News and velocity cards show the full date
+(`YYYY-MM-DD HH:MM:SSZ`); other feeds keep `HH:MM:SSZ`. `panels.js` shows
+ALERTS (>70) and VELOCITY counts in session stats. Thresholds are mirrored
+in `stream.js` / `panels.js` — `api/routes.py` does not yet expose
+`/api/config`, so keep them in sync by hand.
+
+Known limitations from Layers 1-2:
+- `SEVERITY_CRISIS_EXTRA` terms are generic (`global`, `millions`, ...) and
+  can add +25 to non-crisis headlines (e.g. "green turtles ... global
+  status"). Tune or remove in `config.py`.
+- Velocity counts distinct `source_name` as-is, so a single syndicated story
+  republished under multiple source names can look like a surge. Start naive;
+  normalize source names later if this becomes noisy.
+- Velocity window and cooldown are in-memory only. A restart begins with an
+  empty window. Not a bug.
+
+Planned follow-up layers (do not implement yet):
+- Layer 3: dedicated ALERTS panel above the stream, populated by high-severity
+  events only.
 - Layer 4: cross-reference against GDELT conflict events for an external
   objective signal, not just keyword heuristics.
-
+  
 ## How to work on this project
 
 1. Read the current task issue. If something is ambiguous or
