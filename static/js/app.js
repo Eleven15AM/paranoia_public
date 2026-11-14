@@ -94,6 +94,8 @@
             window.stream.ingest(events, firstLoad);
             window.panels.updateHealth(health, state.feedMeta);
             window.panels.updateStats(events);
+            // Layer 3: dedicated ALERTS panel above the stream.
+            window.panels.updateAlerts(events);
             window.panels.setPollAnchor(startedAt, POLL_MS);
 
             firstLoad = false;

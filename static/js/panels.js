@@ -1,12 +1,16 @@
-// Health list + session stats. Pure rendering; no fetching.
+// Health list + session stats + ALERTS panel. Pure rendering; no fetching.
 (function () {
     const healthList = document.getElementById('health-list');
     const healthSummary = document.getElementById('health-summary');
     const lastPollElem = document.getElementById('last-poll');
     const nextPollElem = document.getElementById('next-poll');
+    const alertsList = document.getElementById('alerts-list');
+    const alertsCount = document.getElementById('alerts-count');
 
     // Layer 1: ALERTS count = events above this threshold (mirror config.py).
     const SEVERITY_HIGH = 70;
+    // Layer 3: ALERTS panel capacity (mirror config.py: ALERTS_PANEL_LIMIT).
+    const ALERTS_PANEL_LIMIT = 5;
 
     const statsEls = {
         total:  document.getElementById('stat-total'),
@@ -32,6 +36,17 @@
         if (s < 60) return `${s}s`;
         if (s < 3600) return `${Math.floor(s / 60)}m`;
         return `${Math.floor(s / 3600)}h`;
+    }
+
+    // Display-only time formatting. Kept in sync with stream.js: NEWS and
+    // VELOCITY show the full date; other feeds keep HH:MM:SSZ. Duplicating
+    // ~8 lines is cheaper than a shared module (CONTEXT.md: minimal surface).
+    function fmtTime(e) {
+        const iso = new Date(e.timestamp).toISOString();
+        if (e.category === 'NEWS' || e.category === 'VELOCITY') {
+            return iso.slice(0, 10) + ' ' + iso.slice(11, 19) + 'Z';
+        }
+        return iso.slice(11, 19) + 'Z';
     }
 
     window.panels = {
@@ -126,6 +141,46 @@
             if (unknown > 0) {
                 console.warn(`stats: ${unknown} events in unknown categories`);
             }
+        },
+
+        // Layer 3: dedicated ALERTS panel above the stream. Compact one-line
+        // rows; newest first; capped at ALERTS_PANEL_LIMIT; click opens the
+        // existing dossier. The stream still shows every event — this panel
+        // is additive, not a replacement.
+        updateAlerts(events) {
+            const highs = events
+                .filter((e) => (Number(e.severity) || 0) > SEVERITY_HIGH)
+                .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+
+            const shown = highs.slice(0, ALERTS_PANEL_LIMIT);
+            const overflow = highs.length - shown.length;
+
+            alertsList.innerHTML = '';
+            if (shown.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'text-gray-500 italic';
+                empty.textContent = 'no active alerts';
+                alertsList.appendChild(empty);
+            } else {
+                shown.forEach((e) => {
+                    const row = document.createElement('div');
+                    row.className = 'text-nix-red cursor-pointer hover:bg-white/5 px-1 py-0.5 truncate';
+                    row.dataset.eventId = e.source_url + '|' + e.title + '|' + e.timestamp;
+                    row.innerHTML =
+                        `<span class="text-nix-red">[${escapeHtml(e.category)}]</span> ` +
+                        `<span class="text-gray-500">${fmtTime(e)}</span> ` +
+                        `<span class="text-gray-300">${escapeHtml(e.source_name || '')}</span> ` +
+                        `<span class="text-gray-200">— ${escapeHtml(e.title || '')}</span>`;
+                    row.addEventListener('click', () => {
+                        window.audio.playClick();
+                        window.stream.openDossier(e);
+                    });
+                    alertsList.appendChild(row);
+                });
+            }
+
+            const suffix = overflow > 0 ? ` (+${overflow} more)` : '';
+            alertsCount.textContent = `${highs.length} active${suffix}`;
         },
 
         setPollTiming(lastIso, nextSeconds) {

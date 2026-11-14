@@ -91,34 +91,39 @@ are healthy, stale, or errored, so a silent gap is impossible.
 
 ## File map
 
-    app.py                     Flask app factory; starts scheduler; mounts /api
-    config.py                  FEED_REGISTRY + all tunables
-                               (QUAKE_MIN_MAGNITUDE, FLIGHT_INTERESTING_TYPES,
-                               NEWS_FEED_URLS, NASA_API_KEY, etc.)
+app.py                     Flask app factory; starts scheduler; mounts /api
+config.py                  FEED_REGISTRY + all tunables
+                           (QUAKE_MIN_MAGNITUDE, FLIGHT_INTERESTING_TYPES,
+                           NEWS_FEED_URLS, NASA_API_KEY, SEVERITY_*,
+                           VELOCITY_*, ALERTS_PANEL_LIMIT, and the two
+                           scoring functions score_headline / match_keywords)
 
-    core/models.py             Event, FeedResult dataclasses. Event is the
-                               only shape the frontend ever sees.
-    core/cache.py              Thread-safe in-memory cache.
-    core/scheduler.py          One thread per feed; fetch → cache.set → sleep.
+core/models.py             Event, FeedResult dataclasses. Event is the
+                           only shape the frontend ever sees.
+core/cache.py              Thread-safe in-memory cache.
+core/scheduler.py          One thread per feed; fetch → cache.set → sleep.
+core/velocity.py           In-memory rolling window of topic-key hits;
+                           emits synthetic VELOCITY surge events (Layer 2).
 
-    feeds/base.py              Feed ABC. Provides _get() and _iso_to_dt().
-    feeds/news.py              RSS/Atom via feedparser.
-    feeds/flares.py            NASA DONKI FLR.
-    feeds/quakes.py            USGS GeoJSON.
-    feeds/flights.py           adsb.lol /v2/mil, filtered by type.
-    feeds/neo.py               NASA NeoWs.
-    feeds/commodities.py       OilPriceAPI demo.
-    feeds/emergency_squawks.py adsb.lol emergency squawks.
+feeds/base.py              Feed ABC. Provides _get() and _iso_to_dt().
+feeds/news.py              RSS/Atom via feedparser. Scores each headline
+                           (Layer 1) and seeds velocity (Layer 2).
+feeds/flares.py            NASA DONKI FLR.
+feeds/quakes.py            USGS GeoJSON.
+feeds/flights.py           adsb.lol /v2/mil, filtered by type.
+feeds/neo.py               NASA NeoWs.
+feeds/commodities.py       OilPriceAPI demo.
+feeds/emergency_squawks.py adsb.lol emergency squawks.
 
-    api/routes.py              /api/events, /api/health, /api/feed/<n>, /api/config
-    api/serialize.py           JSON shaping.
+api/routes.py              /api/events, /api/health, /api/feed/<n>, /api/config
+api/serialize.py           JSON shaping.
 
-    static/index.html          Dashboard shell (three panels).
-    static/css/terminal.css    CRT, glows, tag pills, health rows.
-    static/js/audio.js         Web Audio synth.
-    static/js/stream.js        Event cards, filters, dossier, ticker.
-    static/js/panels.js        Feed health + session stats.
-    static/js/app.js           Poll loop + controls. Only file that talks to server.
+static/index.html          Dashboard shell (three panels + ALERTS panel).
+static/css/terminal.css    CRT, glows, tag pills, health rows.
+static/js/audio.js         Web Audio synth.
+static/js/stream.js        Event cards, filters, dossier, ticker, severity tiers.
+static/js/panels.js        Feed health + session stats + ALERTS panel (Layer 3).
+static/js/app.js           Poll loop + controls. Only file that talks to server.
 
 ## Decisions that look odd without context
 
@@ -184,9 +189,8 @@ no cleanup jobs. Do not add persistence unless the user explicitly asks.
 
 ## What is currently in progress
 
-Layer 1 (headline severity scoring) and Layer 2 (velocity detection) are
-implemented. Both are news-only; all other feeds emit `severity=0` and
-render unchanged.
+Layers 1-3 are implemented. Scoring and velocity are news-only; all other
+feeds emit `severity=0` and render unchanged.
 
 Layer 1: `Event.severity: int` (0-100, default 0). `config.score_headline()`
 and `config.match_keywords()` live in `config.py` so tuning is a data change.
@@ -197,8 +201,16 @@ hits and emits one synthetic `VELOCITY` event per topic key per cooldown
 when the threshold is crossed. Called from `core/scheduler.py` after a
 successful news poll. Topic keys are `VELOCITY_TOPICS` plus the positive
 Layer 1 crisis keywords; `SEVERITY_CRISIS_EXTRA` is deliberately excluded
-(too generic). `VELOCITY` events carry `severity=75` and pins the
-`[PIN]` treatment automatically.
+(too generic). `VELOCITY` events carry `severity=75` and pick up the
+`[PIN]` / red treatment automatically.
+
+Layer 3: a dedicated ALERTS panel above the event stream, in
+`static/index.html` and rendered by `panels.js` `updateAlerts()`, fed from
+the same `/api/events` payload. It shows only events with `severity > 70`,
+newest first, capped at `ALERTS_PANEL_LIMIT` (config.py), with a `+N more`
+count. Clicking a row opens the existing dossier. The panel is a live view:
+events age out when they leave `/api/events`; there is no acknowledgement,
+dismissal, or history, and no new API endpoint.
 
 Rendering: `stream.js` applies three severity tiers (high >70 red border +
 bold + `[PIN]` + sorted to top; medium 41-70 amber border; low <=40
@@ -208,7 +220,7 @@ ALERTS (>70) and VELOCITY counts in session stats. Thresholds are mirrored
 in `stream.js` / `panels.js` — `api/routes.py` does not yet expose
 `/api/config`, so keep them in sync by hand.
 
-Known limitations from Layers 1-2:
+Known limitations from Layers 1-3:
 - `SEVERITY_CRISIS_EXTRA` terms are generic (`global`, `millions`, ...) and
   can add +25 to non-crisis headlines (e.g. "green turtles ... global
   status"). Tune or remove in `config.py`.
@@ -217,10 +229,10 @@ Known limitations from Layers 1-2:
   normalize source names later if this becomes noisy.
 - Velocity window and cooldown are in-memory only. A restart begins with an
   empty window. Not a bug.
+- The ALERTS panel has no acknowledgement, dismissal, or history. It shows
+  what is currently in the payload. This is intentional for Layer 3.
 
-Planned follow-up layers (do not implement yet):
-- Layer 3: dedicated ALERTS panel above the stream, populated by high-severity
-  events only.
+Planned follow-up layer (do not implement yet):
 - Layer 4: cross-reference against GDELT conflict events for an external
   objective signal, not just keyword heuristics.
   

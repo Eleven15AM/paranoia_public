@@ -149,6 +149,8 @@ SEVERITY_CRISIS_GROUPS = {0, 1, 2, 3, 4}
 SEVERITY_CRISIS_EXTRA = ["global", "millions", "nationwide", "worldwide"]
 SEVERITY_GLOBAL_WEIGHT = 25
 
+# --- Alerts panel (Layer 3) ---
+ALERTS_PANEL_LIMIT = 5
 
 def _compile_severity():
     out = []

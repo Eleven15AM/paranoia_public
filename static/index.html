@@ -132,7 +132,15 @@
 
         <!-- CENTER COLUMN: EVENT STREAM (EXPANDED) -->
         <section class="lg:col-span-9 flex flex-col bg-nix-panel border border-nix-border hover:border-nix-borderBright transition-colors p-2 overflow-hidden relative">
-
+            <div id="alerts-panel" class="bg-black border border-nix-red/40 p-2 mb-1.5">
+                <div class="text-nix-red font-bold border-b border-nix-red/40 pb-1 flex justify-between items-center">
+                    <span>┌─ ALERTS ─┐</span>
+                    <span id="alerts-count" class="text-[10px] text-gray-400">0 active</span>
+                </div>
+                <div id="alerts-list" class="mt-1 space-y-0.5 text-[11px] font-mono">
+                    <div class="text-gray-500 italic">no active alerts</div>
+                </div>
+            </div>
             <div class="text-nix-cyan font-bold border-b border-nix-border pb-1 flex justify-between items-center">
                 <span>┌─ LIVE EVENT STREAM ─┐</span>
                 <span class="text-[10px] text-nix-green blinking">● RECV</span>
