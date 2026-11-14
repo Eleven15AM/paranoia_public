@@ -51,6 +51,7 @@ class NewsFeed(Feed):
 
                 title = entry.get("title") or "(untitled)"
                 summary = entry.get("summary") or entry.get("description") or ""
+                description = summary[:400]
                 # published_parsed is a time.struct_time in UTC; fall back
                 # to updated_parsed, then to now.
                 published = None
@@ -64,17 +65,23 @@ class NewsFeed(Feed):
                         break
                 timestamp = published or utcnow()
 
+                # Layer 1: score the headline and tag matched keywords so the
+                # existing burn-in machinery highlights why it scored.
+                severity = config.score_headline(title, description)
+                tags = config.match_keywords(title, description)
+
                 events.append(Event(
                     category="NEWS",
                     title=title,
-                    description=summary[:400],
+                    description=description,
                     timestamp=timestamp,
                     source_name=source_name,
                     source_url=link,
                     lat=None,
                     lon=None,
                     symbol="★",
-                    tags=[],
+                    tags=tags,
+                    severity=severity,
                 ))
 
         return FeedResult(

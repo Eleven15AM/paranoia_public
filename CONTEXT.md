@@ -184,24 +184,29 @@ no cleanup jobs. Do not add persistence unless the user explicitly asks.
 
 ## What is currently in progress
 
-**Layer 1: Headline severity scoring.** The dashboard currently treats
-every event with equal visual weight — a football coach hire and a
-global outage look identical. The task adds a `severity: int` field to
-`Event` and a `score_headline()` function that produces 0–100 based on
-keyword weights. High-severity events get red styling and pin above
-the stream; medium gets amber; low is unchanged. Weights live in
-`config.py` so tuning is a data change, not a code change. See the
-current GitHub issue for the exact keyword lists and acceptance criteria.
+Layer 1 (headline severity scoring) is implemented. `Event` now carries a
+`severity: int` (0–100, default 0); `config.score_headline()` and
+`config.match_keywords()` live in `config.py` so tuning is a data change.
+Only `feeds/news.py` calls them — all other feeds emit `severity=0` and
+render unchanged.
 
-Planned follow-up layers (do not implement these while working on
-Layer 1):
+Rendering: `stream.js` applies three tiers (high >70 red border + bold +
+`[PIN]` + sorted to top of stream; medium 41–70 amber border; low ≤40
+unchanged). `panels.js` shows an ALERTS count (>70) in session stats.
+Thresholds are mirrored in `stream.js` / `panels.js` — `api/routes.py` does
+not yet expose `/api/config`, so keep them in sync by hand.
 
-- **Layer 2:** velocity detection — same topic in multiple sources
-  within a time window. A surge in mentions is itself an event.
-- **Layer 3:** dedicated ALERTS panel above the stream, populated by
+Known limitation from Layer 1: `SEVERITY_CRISIS_EXTRA` terms are generic
+(`global`, `millions`, …) and can add +25 to non-crisis headlines
+(e.g. "green turtles … global status"). Tune or remove in `config.py`.
+
+Planned follow-up layers (do not implement while working on Layer 1):
+- Layer 2: velocity detection — same topic in multiple sources within a
+  time window. A surge in mentions is itself an event.
+- Layer 3: dedicated ALERTS panel above the stream, populated by
   high-severity events only.
-- **Layer 4:** cross-reference against GDELT conflict events for an
-  external objective signal, not just keyword heuristics.
+- Layer 4: cross-reference against GDELT conflict events for an external
+  objective signal, not just keyword heuristics.
 
 ## How to work on this project
 

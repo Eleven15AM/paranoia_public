@@ -5,8 +5,12 @@
     const lastPollElem = document.getElementById('last-poll');
     const nextPollElem = document.getElementById('next-poll');
 
+    // Layer 1: ALERTS count = events above this threshold (mirror config.py).
+    const SEVERITY_HIGH = 70;
+
     const statsEls = {
         total:  document.getElementById('stat-total'),
+        alerts: document.getElementById('stat-alerts'),
         NEWS:   document.getElementById('stat-news'),
         SPACE:  document.getElementById('stat-space'),
         QUAKE:  document.getElementById('stat-quake'),
@@ -97,8 +101,10 @@
                 NEWS: 0, SPACE: 0, QUAKE: 0, FLIGHT: 0, NEO: 0, COMMODITY: 0,
             };
             let unknown = 0;
+            let alerts = 0;
             const unknownSeen = new Set();
             events.forEach((e) => {
+                if ((Number(e.severity) || 0) > SEVERITY_HIGH) alerts++;
                 if (byCat[e.category] != null) {
                     byCat[e.category]++;
                 } else {
@@ -111,6 +117,7 @@
             });
 
             statsEls.total.textContent = String(events.length);
+            if (statsEls.alerts) statsEls.alerts.textContent = String(alerts);
             Object.entries(byCat).forEach(([k, v]) => {
                 const el = statsEls[k];
                 if (el) el.textContent = String(v);

@@ -4,7 +4,13 @@
 //   - client-side filtering
 //   - dossier drawer
 //   - the bottom ticker
+//
+// Layer 1: severity tiers. Thresholds mirror config.py (SEVERITY_MEDIUM/HIGH).
+// Keep in sync — api/routes.py does not currently expose /api/config.
 (function () {
+    const SEVERITY_MEDIUM = 40;
+    const SEVERITY_HIGH = 70;
+
     const logTerminal = document.getElementById('log-terminal');
     const logCount = document.getElementById('log-count');
     const tickerContent = document.getElementById('ticker-content');
@@ -79,6 +85,15 @@
             .join(' ');
     }
 
+    // Severity tier for NEWS only; non-NEWS or severity 0 → 'low' (current look).
+    function severityTier(e) {
+        if (e.category !== 'NEWS') return 'low';
+        const s = Number(e.severity) || 0;
+        if (s > SEVERITY_HIGH) return 'high';
+        if (s > SEVERITY_MEDIUM) return 'medium';
+        return 'low';
+    }
+
     function renderCard(e) {
         const time = new Date(e.timestamp).toISOString().slice(11, 19);
         const catColor = CAT_COLOR[e.category] || 'text-nix-cyan';
@@ -86,14 +101,25 @@
         const title = escapeHtml(e.title);
         const desc = escapeHtml(e.description || '');
         const cat = escapeHtml(e.category);
+        const tier = severityTier(e);
         const loc = e.lat != null && e.lon != null
             ? `${e.lat.toFixed(1)}°, ${e.lon.toFixed(1)}°`
             : '';
 
         const div = document.createElement('div');
-        div.className = 'border-b border-nix-border/40 pb-1.5 hover:bg-white/5 transition-colors cursor-pointer';
+        let cls = 'border-b border-nix-border/40 pb-1.5 hover:bg-white/5 transition-colors cursor-pointer';
+        if (tier === 'high') {
+            cls += ' border-l-4 border-l-nix-red pl-2';
+        } else if (tier === 'medium') {
+            cls += ' border-l-4 border-l-nix-amber pl-2';
+        }
+        div.className = cls;
         div.dataset.filter = e.category;
         div.dataset.eventId = eventId(e);
+        div.dataset.severity = String(Number(e.severity) || 0);
+
+        const titleCls = tier === 'high' ? 'text-gray-100 mt-0.5 font-bold' : 'text-gray-200 mt-0.5';
+        const pin = tier === 'high' ? '<span class="text-nix-red font-bold mr-1">[PIN]</span>' : '';
 
         div.innerHTML = `
             <div class="flex justify-between text-[10px] text-gray-500 gap-2">
@@ -104,7 +130,7 @@
                 </span>
                 <span class="text-gray-400 shrink-0">${loc}</span>
             </div>
-            <div class="text-gray-200 mt-0.5">${title}</div>
+            <div class="${titleCls}">${pin}${title}</div>
             <div class="text-gray-400 mt-0.5">${desc.slice(0, 180)}${desc.length > 180 ? '…' : ''}</div>
             <div class="text-gray-500 mt-0.5">
                 ${loc ? `<span class="tag-pill cat">${loc}</span>` : ''}
@@ -157,6 +183,7 @@
             <div><strong>SOURCE:</strong> ${escapeHtml(e.source_name || '')}</div>
             <div><strong>TIMESTAMP:</strong> ${escapeHtml(ts)}</div>
             <div><strong>COORDS:</strong> ${lat}, ${lon}</div>
+            <div><strong>SEVERITY:</strong> ${Number(e.severity) || 0}</div>
             <div><strong>DETAIL:</strong> ${escapeHtml(e.description || e.text || '')}</div>
             <div class="mt-1">
                 <a href="${escapeHtml(e.source_url || '#')}" target="_blank" rel="noopener"
@@ -170,6 +197,20 @@
         window.audio.playClick();
         dossierPanel.classList.add('hidden');
     });
+
+    // Stable sort: high-severity cards first, relative order preserved within
+    // each tier. Runs after the per-category cap trim, before applyFilter().
+    function sortBySeverity() {
+        const cards = Array.from(logTerminal.children);
+        cards.sort((a, b) => {
+            const sa = Number(a.dataset.severity) || 0;
+            const sb = Number(b.dataset.severity) || 0;
+            const ha = sa > SEVERITY_HIGH ? 1 : 0;
+            const hb = sb > SEVERITY_HIGH ? 1 : 0;
+            return hb - ha;
+        });
+        cards.forEach((el) => logTerminal.appendChild(el));
+    }
 
     window.stream = {
         openDossier,
@@ -225,6 +266,9 @@
                     logTerminal.removeChild(el);
                 }
             });
+
+            // Layer 1: high-severity cards rise to the top of the stream.
+            sortBySeverity();
 
             logCount.textContent = `${String(totalCount).padStart(4, '0')} EVTS`;
             applyFilter();
