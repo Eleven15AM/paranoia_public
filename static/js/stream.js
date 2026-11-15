@@ -187,6 +187,9 @@
     });
 
     function pushTicker(e) {
+        // Footer ticker removed (issue #5). Guard so this stays a no-op until
+        // the footer slot is repurposed. See CONTEXT.md.
+        if (!tickerContent) return;
         const bit = `--- [${e.category}] ${e.source_name}: ${e.title}`;
         tickerContent.textContent = bit + ' ' + tickerContent.textContent.slice(0, 500);
     }

@@ -10,6 +10,11 @@ small summary to Event.gdelt:
 Failure is never fatal: a timeout, HTTP error, rate limit, or malformed
 response leaves Event.gdelt as None and the poll proceeds. No disk I/O.
 In-memory cache and min-interval gate only; a restart begins empty.
+
+Query sanitization (issue #5): GDELT treats ", (, ), :, - as operators
+inside the query value. We strip internal quotes, collapse whitespace, and
+wrap the result in double quotes so a headline becomes a phrase search
+instead of being parsed as operators.
 """
 import json
 import logging
@@ -27,9 +32,22 @@ _cache: dict[str, tuple[float, dict]] = {}   # query -> (expiry_epoch, result)
 _last_call_ts: float = 0.0
 
 
+def _sanitize_query(query: str) -> str:
+    """Turn a headline into a safe GDELT phrase query.
+
+    - strip internal double quotes (they would break phrase search)
+    - collapse any run of whitespace to one space
+    - wrap in double quotes so GDELT treats it as an exact phrase
+      (prevents accidental operator parsing of : ( ) - and similar)
+    """
+    q = (query or "").replace('"', " ")
+    q = " ".join(q.split())
+    return f'"{q}"' if q else ""
+
+
 def _build_url(query: str) -> str:
     params = {
-        "query": query,
+        "query": _sanitize_query(query),
         "mode": "artlist",
         "format": "json",
         "timespan": config.GDELT_TIMESPAN,

@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import config
 from core.models import Event, FeedResult, utcnow
-from feeds.base import Feed
+from feeds.base import Feed, classify_http_error
 
 BASE_URL = "https://api.nasa.gov/DONKI/FLR"
 
@@ -28,6 +28,11 @@ class FlaresFeed(Feed):
             resp.raise_for_status()
             data = resp.json()
         except Exception as exc:
+            # A 404 from DONKI means "no flares in this window", not a
+            # failure. Report it as healthy-but-empty so FEED HEALTH is
+            # honest. Other errors still surface.
+            if classify_http_error(exc) == "empty":
+                return self._empty(error=None)
             return self._empty(error=f"NASA DONKI request failed: {exc}")
 
         events = []

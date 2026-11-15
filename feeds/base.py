@@ -11,6 +11,31 @@ import config
 from core.models import FeedResult, utcnow
 
 
+def classify_http_error(exc_or_status) -> str:
+    """Classify an HTTP failure for feed health reporting. Pure; no I/O.
+
+    Returns:
+        "empty"  - the upstream is reachable but has nothing to report for
+                   this window (404 is the only current case). Callers should
+                   treat this as ok=True, events=[], error=None.
+        "error"  - a real failure the FEED HEALTH panel should surface.
+
+    Accepts either an exception (as raised by requests) or an int/HTTPError
+    status. Anything unrecognized is treated as "error" (fail loud).
+    """
+    status = None
+    if isinstance(exc_or_status, int):
+        status = exc_or_status
+    elif hasattr(exc_or_status, "response") and exc_or_status.response is not None:
+        status = getattr(exc_or_status.response, "status_code", None)
+    elif hasattr(exc_or_status, "status_code"):
+        status = getattr(exc_or_status, "status_code", None)
+
+    if status == 404:
+        return "empty"
+    return "error"
+
+
 class Feed(ABC):
     name: str          # set by subclass
     interval: int      # set by subclass, seconds

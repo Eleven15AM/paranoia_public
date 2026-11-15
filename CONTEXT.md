@@ -108,10 +108,10 @@ core/velocity.py           In-memory rolling window of topic-key hits;
 core/gdelt.py              Best-effort GDELT cross-reference for high
                            severity NEWS/VELOCITY events (Layer 4).
 
-feeds/base.py              Feed ABC. Provides _get() and _iso_to_dt().
+feeds/base.py              Feed ABC + classify_http_error() (issue #5).
 feeds/news.py              RSS/Atom via feedparser. Scores each headline
                            (Layer 1) and seeds velocity (Layer 2).
-feeds/flares.py            NASA DONKI FLR.
+feeds/flares.py            NASA DONKI FLR. 404 treated as healthy-but-empty.
 feeds/quakes.py            USGS GeoJSON.
 feeds/flights.py           adsb.lol /v2/mil, filtered by type.
 feeds/neo.py               NASA NeoWs.
@@ -122,10 +122,11 @@ api/routes.py              /api/events, /api/health, /api/feed/<n>, /api/config
 api/serialize.py           JSON shaping.
 
 static/index.html          Dashboard shell (three panels + ALERTS panel).
+                           Footer slot reserved; no ticker text.
 static/css/terminal.css    CRT, glows, tag pills, health rows.
 static/js/audio.js         Web Audio synth.
-static/js/stream.js        Event cards, filters, dossier, ticker, severity
-                           tiers, GDELT row.
+static/js/stream.js        Event cards, filters, dossier, severity tiers,
+                           GDELT row. pushTicker() is a null-safe no-op.
 static/js/panels.js        Feed health + session stats + ALERTS panel
                            (Layer 3) + [GDELT: N] chip (Layer 4).
 static/js/app.js           Poll loop + controls. Only file that talks to server.
@@ -194,8 +195,9 @@ no cleanup jobs. Do not add persistence unless the user explicitly asks.
 
 ## What is currently in progress
 
-Layers 1-4 are implemented. Scoring, velocity, and GDELT are news-only; all
-other feeds emit `severity=0`, `gdelt=null`, and render unchanged.
+Layers 1-4 plus the feed-handling cleanup (issue #5) are implemented.
+Scoring, velocity, and GDELT are news-only; all other feeds emit
+`severity=0`, `gdelt=null`, and render unchanged.
 
 Layer 1: `Event.severity: int` (0-100, default 0). `config.score_headline()`
 and `config.match_keywords()` live in `config.py` so tuning is a data change.
@@ -217,9 +219,18 @@ Layer 4: `core/gdelt.py` cross-references each high-severity NEWS/VELOCITY
 event against the keyless GDELT 2.0 DOC API. Result is attached as
 `Event.gdelt: {"count", "sample_titles", "sample_urls"} | None`. Called from
 `core/scheduler.py` after velocity. Best-effort: any failure leaves `gdelt`
-as `None` and never fails a poll. A global min-interval (`GDELT_MIN_INTERVAL_SECONDS`)
-throttles network calls, including when GDELT returns 429; an in-memory
-per-query cache (`GDELT_CACHE_TTL_SECONDS`) avoids repeats. No persistence.
+as `None` and never fails a poll. A global min-interval
+(`GDELT_MIN_INTERVAL_SECONDS`) throttles network calls, including when GDELT
+returns 429; an in-memory per-query cache (`GDELT_CACHE_TTL_SECONDS`) avoids
+repeats. Titles are sanitized into quoted phrase queries before sending, so
+operator characters in headlines are not parsed as GDELT operators.
+
+Issue #5 (feed handling): `feeds/base.py` has `classify_http_error()`,
+currently used by `feeds/flares.py` to treat a NASA DONKI 404 as healthy-but-
+empty rather than an error. The bottom footer `ALERT: FLASH` marquee and the
+scrolling ticker text were removed; the footer slot (`#footer-slot`) is
+reserved for future functionality. `stream.js` `pushTicker()` is a null-safe
+no-op until that slot is repurposed.
 
 Rendering: `stream.js` applies three severity tiers (high >70 red border +
 bold + `[PIN]` + sorted to top; medium 41-70 amber border; low <=40
@@ -230,7 +241,7 @@ unchanged). News and velocity cards show the full date
 in `stream.js` / `panels.js` — `api/routes.py` does not expose `/api/config`,
 so keep them in sync by hand.
 
-Known limitations from Layers 1-4:
+Known limitations from Layers 1-4 and issue #5:
 - `SEVERITY_CRISIS_EXTRA` terms are generic (`global`, `millions`, ...) and
   can add +25 to non-crisis headlines. Tune or remove in `config.py`.
 - Velocity counts distinct `source_name` as-is, so a syndicated story
@@ -241,12 +252,11 @@ Known limitations from Layers 1-4:
   min-interval gate means at most one network attempt per interval; most
   high-severity events will carry `gdelt: None` until GDELT recovers. This
   is expected behavior, not a bug.
-- NASA DONKI FLR endpoint currently returns HTTP 404, surfacing `flares` as
-  a feed error. Deferred to a separate feed-handling issue; do not fix here.
+- Only `feeds/flares.py` currently uses `classify_http_error()`. Other feeds
+  still treat every non-2xx as an error and may need the same treatment.
 
-Planned follow-up (not this layer):
-- Separate issue: feed-handling robustness (including NASA DONKI 404 and
-  general per-feed error handling).
+No planned follow-up layer at present. Open ideas if a next layer is
+proposed: none defined beyond what exists above.
   
 ## How to work on this project
 
