@@ -147,6 +147,8 @@
         // rows; newest first; capped at ALERTS_PANEL_LIMIT; click opens the
         // existing dossier. The stream still shows every event — this panel
         // is additive, not a replacement.
+        // Layer 4: rows also show [GDELT: N] when the event carries a
+        // cross-reference with at least one related event.
         updateAlerts(events) {
             const highs = events
                 .filter((e) => (Number(e.severity) || 0) > SEVERITY_HIGH)
@@ -166,11 +168,21 @@
                     const row = document.createElement('div');
                     row.className = 'text-nix-red cursor-pointer hover:bg-white/5 px-1 py-0.5 truncate';
                     row.dataset.eventId = e.source_url + '|' + e.title + '|' + e.timestamp;
+
+                    let gdeltChip = '';
+                    if (e.gdelt && typeof e.gdelt === 'object') {
+                        const n = Number(e.gdelt.count) || 0;
+                        if (n > 0) {
+                            gdeltChip = ` <span class="text-nix-cyan text-[10px]">[GDELT: ${n}]</span>`;
+                        }
+                    }
+
                     row.innerHTML =
                         `<span class="text-nix-red">[${escapeHtml(e.category)}]</span> ` +
                         `<span class="text-gray-500">${fmtTime(e)}</span> ` +
                         `<span class="text-gray-300">${escapeHtml(e.source_name || '')}</span> ` +
-                        `<span class="text-gray-200">— ${escapeHtml(e.title || '')}</span>`;
+                        `<span class="text-gray-200">— ${escapeHtml(e.title || '')}</span>` +
+                        gdeltChip;
                     row.addEventListener('click', () => {
                         window.audio.playClick();
                         window.stream.openDossier(e);

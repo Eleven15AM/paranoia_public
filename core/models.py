@@ -14,7 +14,7 @@ def utcnow() -> datetime:
 
 @dataclass
 class Event:
-    category: str                 # NEWS | SPACE | QUAKE | FLIGHT | NEO
+    category: str                 # NEWS | VELOCITY | SPACE | QUAKE | FLIGHT | NEO | COMMODITY | SQUAWK
     title: str
     description: str
     timestamp: datetime           # when the event happened (best available)
@@ -25,6 +25,7 @@ class Event:
     symbol: str = "●"             # radar marker; set by each feed
     tags: list[str] = field(default_factory=list)  # burn-in keywords
     severity: int = 0             # 0-100; Layer 1 scores NEWS only, others stay 0
+    gdelt: Optional[dict] = None  # Layer 4: {"count", "sample_titles", "sample_urls"} or None
 
     def to_dict(self) -> dict:
         d = asdict(self)

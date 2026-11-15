@@ -8,6 +8,7 @@
 // Layer 1: severity tiers. Thresholds mirror config.py (SEVERITY_MEDIUM/HIGH).
 // Layer 2: VELOCITY category renders like any event (severity 75 → red tier).
 //          NEWS and VELOCITY cards show the full date; other feeds keep HH:MM:SSZ.
+// Layer 4: when the server attaches e.gdelt, the dossier shows a GDELT row.
 // Keep thresholds in sync with config.py — api/routes.py does not currently
 // expose /api/config.
 (function () {
@@ -190,6 +191,24 @@
         tickerContent.textContent = bit + ' ' + tickerContent.textContent.slice(0, 500);
     }
 
+    // Layer 4: dossier GDELT row. Returns '' when no cross-reference is
+    // present. All text and URLs pass through escapeHtml.
+    function renderGdeltRow(g) {
+        if (!g || typeof g !== 'object') return '';
+        const count = Number(g.count) || 0;
+        const titles = Array.isArray(g.sample_titles) ? g.sample_titles : [];
+        const urls = Array.isArray(g.sample_urls) ? g.sample_urls : [];
+        if (count <= 0) {
+            return `<div><strong>GDELT:</strong> <span class="text-gray-500">no related events</span></div>`;
+        }
+        const firstTitle = titles[0] || '';
+        const firstUrl = urls[0] || '';
+        const link = firstUrl && firstTitle
+            ? `<a href="${escapeHtml(firstUrl)}" target="_blank" rel="noopener" class="text-nix-cyan underline">${escapeHtml(firstTitle)}</a>`
+            : firstTitle ? escapeHtml(firstTitle) : '';
+        return `<div><strong>GDELT:</strong> ${count} related event${count === 1 ? '' : 's'}${link ? ' — ' + link : ''}</div>`;
+    }
+
     function openDossier(e) {
         dossierTitle.textContent = `> ${e.title || 'DOSSIER'} (${e.category || '?'})`;
         // Full date for NEWS/VELOCITY; compact time for the rest (matches card).
@@ -202,6 +221,7 @@
             <div><strong>TIMESTAMP:</strong> ${escapeHtml(ts)}</div>
             <div><strong>COORDS:</strong> ${lat}, ${lon}</div>
             <div><strong>SEVERITY:</strong> ${Number(e.severity) || 0}</div>
+            ${renderGdeltRow(e.gdelt)}
             <div><strong>DETAIL:</strong> ${escapeHtml(e.description || e.text || '')}</div>
             <div class="mt-1">
                 <a href="${escapeHtml(e.source_url || '#')}" target="_blank" rel="noopener"

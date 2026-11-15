@@ -95,8 +95,9 @@ app.py                     Flask app factory; starts scheduler; mounts /api
 config.py                  FEED_REGISTRY + all tunables
                            (QUAKE_MIN_MAGNITUDE, FLIGHT_INTERESTING_TYPES,
                            NEWS_FEED_URLS, NASA_API_KEY, SEVERITY_*,
-                           VELOCITY_*, ALERTS_PANEL_LIMIT, and the two
-                           scoring functions score_headline / match_keywords)
+                           VELOCITY_*, ALERTS_PANEL_LIMIT, GDELT_*, and
+                           the two scoring functions score_headline /
+                           match_keywords)
 
 core/models.py             Event, FeedResult dataclasses. Event is the
                            only shape the frontend ever sees.
@@ -104,6 +105,8 @@ core/cache.py              Thread-safe in-memory cache.
 core/scheduler.py          One thread per feed; fetch → cache.set → sleep.
 core/velocity.py           In-memory rolling window of topic-key hits;
                            emits synthetic VELOCITY surge events (Layer 2).
+core/gdelt.py              Best-effort GDELT cross-reference for high
+                           severity NEWS/VELOCITY events (Layer 4).
 
 feeds/base.py              Feed ABC. Provides _get() and _iso_to_dt().
 feeds/news.py              RSS/Atom via feedparser. Scores each headline
@@ -121,8 +124,10 @@ api/serialize.py           JSON shaping.
 static/index.html          Dashboard shell (three panels + ALERTS panel).
 static/css/terminal.css    CRT, glows, tag pills, health rows.
 static/js/audio.js         Web Audio synth.
-static/js/stream.js        Event cards, filters, dossier, ticker, severity tiers.
-static/js/panels.js        Feed health + session stats + ALERTS panel (Layer 3).
+static/js/stream.js        Event cards, filters, dossier, ticker, severity
+                           tiers, GDELT row.
+static/js/panels.js        Feed health + session stats + ALERTS panel
+                           (Layer 3) + [GDELT: N] chip (Layer 4).
 static/js/app.js           Poll loop + controls. Only file that talks to server.
 
 ## Decisions that look odd without context
@@ -189,8 +194,8 @@ no cleanup jobs. Do not add persistence unless the user explicitly asks.
 
 ## What is currently in progress
 
-Layers 1-3 are implemented. Scoring and velocity are news-only; all other
-feeds emit `severity=0` and render unchanged.
+Layers 1-4 are implemented. Scoring, velocity, and GDELT are news-only; all
+other feeds emit `severity=0`, `gdelt=null`, and render unchanged.
 
 Layer 1: `Event.severity: int` (0-100, default 0). `config.score_headline()`
 and `config.match_keywords()` live in `config.py` so tuning is a data change.
@@ -200,41 +205,48 @@ Layer 2: `core/velocity.py` keeps an in-memory rolling window of topic-key
 hits and emits one synthetic `VELOCITY` event per topic key per cooldown
 when the threshold is crossed. Called from `core/scheduler.py` after a
 successful news poll. Topic keys are `VELOCITY_TOPICS` plus the positive
-Layer 1 crisis keywords; `SEVERITY_CRISIS_EXTRA` is deliberately excluded
-(too generic). `VELOCITY` events carry `severity=75` and pick up the
-`[PIN]` / red treatment automatically.
+Layer 1 crisis keywords; `SEVERITY_CRISIS_EXTRA` is deliberately excluded.
+`VELOCITY` events carry `severity=75` and pick up `[PIN]` / red treatment.
 
-Layer 3: a dedicated ALERTS panel above the event stream, in
-`static/index.html` and rendered by `panels.js` `updateAlerts()`, fed from
-the same `/api/events` payload. It shows only events with `severity > 70`,
-newest first, capped at `ALERTS_PANEL_LIMIT` (config.py), with a `+N more`
-count. Clicking a row opens the existing dossier. The panel is a live view:
-events age out when they leave `/api/events`; there is no acknowledgement,
-dismissal, or history, and no new API endpoint.
+Layer 3: a dedicated ALERTS panel above the event stream, rendered by
+`panels.js` `updateAlerts()`. Shows only `severity > 70` events, newest
+first, capped at `ALERTS_PANEL_LIMIT`. Clicking a row opens the dossier.
+The panel is a live view: no ack, no dismissal, no history.
+
+Layer 4: `core/gdelt.py` cross-references each high-severity NEWS/VELOCITY
+event against the keyless GDELT 2.0 DOC API. Result is attached as
+`Event.gdelt: {"count", "sample_titles", "sample_urls"} | None`. Called from
+`core/scheduler.py` after velocity. Best-effort: any failure leaves `gdelt`
+as `None` and never fails a poll. A global min-interval (`GDELT_MIN_INTERVAL_SECONDS`)
+throttles network calls, including when GDELT returns 429; an in-memory
+per-query cache (`GDELT_CACHE_TTL_SECONDS`) avoids repeats. No persistence.
 
 Rendering: `stream.js` applies three severity tiers (high >70 red border +
 bold + `[PIN]` + sorted to top; medium 41-70 amber border; low <=40
 unchanged). News and velocity cards show the full date
-(`YYYY-MM-DD HH:MM:SSZ`); other feeds keep `HH:MM:SSZ`. `panels.js` shows
-ALERTS (>70) and VELOCITY counts in session stats. Thresholds are mirrored
-in `stream.js` / `panels.js` — `api/routes.py` does not yet expose
-`/api/config`, so keep them in sync by hand.
+(`YYYY-MM-DD HH:MM:SSZ`); other feeds keep `HH:MM:SSZ`. The dossier shows a
+`GDELT:` row when present. ALERTS panel rows show `[GDELT: N]` when present.
+`panels.js` shows ALERTS (>70) and VELOCITY counts. Thresholds are mirrored
+in `stream.js` / `panels.js` — `api/routes.py` does not expose `/api/config`,
+so keep them in sync by hand.
 
-Known limitations from Layers 1-3:
+Known limitations from Layers 1-4:
 - `SEVERITY_CRISIS_EXTRA` terms are generic (`global`, `millions`, ...) and
-  can add +25 to non-crisis headlines (e.g. "green turtles ... global
-  status"). Tune or remove in `config.py`.
-- Velocity counts distinct `source_name` as-is, so a single syndicated story
-  republished under multiple source names can look like a surge. Start naive;
-  normalize source names later if this becomes noisy.
-- Velocity window and cooldown are in-memory only. A restart begins with an
-  empty window. Not a bug.
-- The ALERTS panel has no acknowledgement, dismissal, or history. It shows
-  what is currently in the payload. This is intentional for Layer 3.
+  can add +25 to non-crisis headlines. Tune or remove in `config.py`.
+- Velocity counts distinct `source_name` as-is, so a syndicated story
+  republished under multiple names can look like a surge. Start naive.
+- Velocity window and cooldown are in-memory only. Restart = empty window.
+- The ALERTS panel has no ack, dismissal, or history. Intentional for Layer 3.
+- GDELT is keyless and aggressively rate-limited (HTTP 429 is common). The
+  min-interval gate means at most one network attempt per interval; most
+  high-severity events will carry `gdelt: None` until GDELT recovers. This
+  is expected behavior, not a bug.
+- NASA DONKI FLR endpoint currently returns HTTP 404, surfacing `flares` as
+  a feed error. Deferred to a separate feed-handling issue; do not fix here.
 
-Planned follow-up layer (do not implement yet):
-- Layer 4: cross-reference against GDELT conflict events for an external
-  objective signal, not just keyword heuristics.
+Planned follow-up (not this layer):
+- Separate issue: feed-handling robustness (including NASA DONKI 404 and
+  general per-feed error handling).
   
 ## How to work on this project
 

@@ -55,6 +55,16 @@ class Scheduler:
                     except Exception:
                         log.exception("Velocity check failed; continuing without surges")
 
+                # Layer 4: GDELT cross-reference. Runs on the merged list
+                # (real news + any VELOCITY surges) so surges can also be
+                # enriched. Best-effort; a failure never affects the poll.
+                if feed.name == "news" and result.ok and config_GDELT_ENABLED():
+                    try:
+                        from core.gdelt import enrich as _gdelt_enrich
+                        _gdelt_enrich(result.events)
+                    except Exception:
+                        log.exception("GDELT enrich failed; continuing without enrichment")
+
                 self._cache.set(result)
                 log.info(
                     "Feed %s: %d events (ok=%s)%s",
@@ -67,3 +77,9 @@ class Scheduler:
                 log.exception("Feed %s crashed; thread continues", feed.name)
             # Wait with a timeout so stop() is responsive.
             self._stop.wait(feed.interval)
+
+
+def config_GDELT_ENABLED() -> bool:
+    """Lazy accessor so importing scheduler never pulls in config at load time."""
+    import config
+    return bool(getattr(config, "GDELT_ENABLED", True))

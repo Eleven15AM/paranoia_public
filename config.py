@@ -6,10 +6,9 @@ feeds/__init__.py (avoids a circular import: feeds import from config,
 config imports feeds). The scheduler reads FEED_REGISTRY to know what to
 run; the API reads it to advertise categories to the frontend.
 
-Severity scoring (Layer 1, news only) and velocity detection (Layer 2, news
-only) also live here deliberately: retuning keywords/weights/windows is a
-data change, not a code change. score_headline(), match_keywords(), and the
-velocity helpers are pure and do no I/O (safe under read_only Docker FS).
+Severity scoring (Layer 1), velocity detection (Layer 2), and GDELT
+cross-reference (Layer 4) also live here deliberately: retuning keywords,
+weights, windows, and endpoints is a data change, not a code change.
 """
 import os
 import re
@@ -143,14 +142,11 @@ SEVERITY_WEIGHTS = [
 SEVERITY_CRISIS_GROUPS = {0, 1, 2, 3, 4}
 
 # Global-scale terms: count as crisis AND add SEVERITY_GLOBAL_WEIGHT per match.
-# Option 2: ensures "Microsoft global outage hits millions" scores >70.
 # Remove "millions" if ordinary headlines ("millions raised") get too hot.
 # Note: these are intentionally NOT used as velocity topic keys (see below).
 SEVERITY_CRISIS_EXTRA = ["global", "millions", "nationwide", "worldwide"]
 SEVERITY_GLOBAL_WEIGHT = 25
 
-# --- Alerts panel (Layer 3) ---
-ALERTS_PANEL_LIMIT = 5
 
 def _compile_severity():
     out = []
@@ -262,3 +258,21 @@ def _compile_velocity_topics():
 
 
 VELOCITY_KEYS, VELOCITY_RE = _compile_velocity_topics()
+
+
+# --- ALERTS panel (Layer 3) ----------------------------------------------
+# How many high-severity events the dedicated ALERTS panel shows at once.
+# Overflow is indicated with a "+N more" counter.
+ALERTS_PANEL_LIMIT = 5
+
+
+# --- GDELT cross-reference (Layer 4: news only, high severity only) ------
+# Best-effort external signal. Never fails a poll. Keyless GDELT DOC API.
+# In-memory cache and min-interval enforced in core/gdelt.py.
+GDELT_ENABLED = True
+GDELT_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+GDELT_TIMESPAN = "1d"
+GDELT_MAX_RECORDS = 5
+GDELT_MIN_INTERVAL_SECONDS = 300
+GDELT_CACHE_TTL_SECONDS = 600
+GDELT_TIMEOUT_SECONDS = 10
