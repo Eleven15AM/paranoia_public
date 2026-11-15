@@ -131,6 +131,15 @@ static/js/panels.js        Feed health + session stats + ALERTS panel
                            (Layer 3) + [GDELT: N] chip (Layer 4).
 static/js/app.js           Poll loop + controls. Only file that talks to server.
 
+.github/workflows/docker-publish.yml
+                           Build + push to GHCR on main and v* tags.
+docker-compose.prod.yml    Pull-and-run compose for the target machine.
+docker-compose.yml         Local development compose (build: .).
+Dockerfile                 Single image, used by both compose files.
+.env.example               Environment template (NASA_API_KEY, VERSION).
+README.md                  Run instructions: local dev and GHCR.
+CONTEXT.md                 This file.
+
 ## Decisions that look odd without context
 
 ### Radar canvas was removed
@@ -195,9 +204,9 @@ no cleanup jobs. Do not add persistence unless the user explicitly asks.
 
 ## What is currently in progress
 
-Layers 1-4 plus the feed-handling cleanup (issue #5) are implemented.
-Scoring, velocity, and GDELT are news-only; all other feeds emit
-`severity=0`, `gdelt=null`, and render unchanged.
+Layers 1-4, the feed-handling cleanup (issue #5), and the release process
+(issue #6) are implemented. Scoring, velocity, and GDELT are news-only;
+all other feeds emit `severity=0`, `gdelt=null`, and render unchanged.
 
 Layer 1: `Event.severity: int` (0-100, default 0). `config.score_headline()`
 and `config.match_keywords()` live in `config.py` so tuning is a data change.
@@ -232,6 +241,14 @@ scrolling ticker text were removed; the footer slot (`#footer-slot`) is
 reserved for future functionality. `stream.js` `pushTicker()` is a null-safe
 no-op until that slot is repurposed.
 
+Issue #6 (release process): `.github/workflows/docker-publish.yml` builds
+and pushes the image to GHCR (`ghcr.io/eleven15am/paranoia_public`) on push
+to `main` and on `v*.*.*` tags. `docker-compose.prod.yml` pulls by
+`VERSION` instead of building; the existing `docker-compose.yml` stays for
+local development. The published package is public; the workflow sets
+`org.opencontainers.image.source` so the package links back to the repo.
+Security flags are identical between the two compose files.
+
 Rendering: `stream.js` applies three severity tiers (high >70 red border +
 bold + `[PIN]` + sorted to top; medium 41-70 amber border; low <=40
 unchanged). News and velocity cards show the full date
@@ -240,6 +257,26 @@ unchanged). News and velocity cards show the full date
 `panels.js` shows ALERTS (>70) and VELOCITY counts. Thresholds are mirrored
 in `stream.js` / `panels.js` — `api/routes.py` does not expose `/api/config`,
 so keep them in sync by hand.
+
+Known limitations from Layers 1-4 and issues #5-#6:
+- `SEVERITY_CRISIS_EXTRA` terms are generic (`global`, `millions`, ...) and
+  can add +25 to non-crisis headlines. Tune or remove in `config.py`.
+- Velocity counts distinct `source_name` as-is, so a syndicated story
+  republished under multiple names can look like a surge. Start naive.
+- Velocity window and cooldown are in-memory only. Restart = empty window.
+- The ALERTS panel has no ack, dismissal, or history. Intentional for Layer 3.
+- GDELT is keyless and aggressively rate-limited (HTTP 429 is common). The
+  min-interval gate means at most one network attempt per interval; most
+  high-severity events will carry `gdelt: None` until GDELT recovers. This
+  is expected behavior, not a bug.
+- Only `feeds/flares.py` currently uses `classify_http_error()`. Other feeds
+  still treat every non-2xx as an error and may need the same treatment.
+- Release images are `linux/amd64` only. If the target machine is ARM, add
+  `linux/arm64` to the workflow's `platforms:` and expect a longer build.
+- GHCR packages default to private on first push. Visibility is a one-time
+  manual toggle in Package settings; see README.
+
+No planned follow-up layer at present.
 
 Known limitations from Layers 1-4 and issue #5:
 - `SEVERITY_CRISIS_EXTRA` terms are generic (`global`, `millions`, ...) and

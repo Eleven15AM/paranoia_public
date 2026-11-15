@@ -1,0 +1,18 @@
+services:
+  paranoia:
+    image: ghcr.io/eleven15am/paranoia_public:${VERSION:-latest}
+    container_name: paranoia
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      # NASA_API_KEY can live in .env; this line keeps the DEMO_KEY fallback
+      # if the operator omits it. env_file values win over these defaults.
+      NASA_API_KEY: ${NASA_API_KEY:-DEMO_KEY}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
