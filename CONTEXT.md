@@ -185,6 +185,21 @@ Restarting the container is a fresh poll. This is a feature for a
 single-user dashboard: no schema migrations, no disk state to corrupt,
 no cleanup jobs. Do not add persistence unless the user explicitly asks.
 
+### Jinja2 templates were considered and rejected
+
+The dashboard is a single page: `index.html` is served once and everything
+after that is `fetch('/api/events')` plus DOM rendering in `stream.js`,
+`panels.js`, and `app.js`. Jinja2 earns its keep on multi-page sites with
+server-rendered forms and shared layouts. This app has none of those. Adding
+it would mean a `templates/` directory, a `render_template` call, a template
+context, and a second rendering path for content that is already client-rendered
+— strictly more surface area for no benefit. The current split (static HTML
+shell + JSON + one JS renderer) is coherent and should stay.
+
+If a genuinely server-rendered page appears later — a history view, a settings
+form — use Jinja2 for that one route and leave the dashboard SPA untouched.
+Do not convert the existing page.
+
 ## Design principles
 
 - **No scoring, no threat level, no forecast.** The dashboard shows
@@ -276,7 +291,122 @@ Known limitations from Layers 1-4 and issues #5-#6:
 - GHCR packages default to private on first push. Visibility is a one-time
   manual toggle in Package settings; see README.
 
-No planned follow-up layer at present.
+No follow-up layer is currently scheduled. The accepted external-review items
+above are queued for future work when you choose to pick them up.
+
+### Accepted from the external review (not yet implemented)
+
+An external code review was performed after issue #6. Several of its
+recommendations were accepted; several were rejected as incompatible with
+this file's documented decisions. The accepted items below are queued for
+future work, in rough priority order. They are not yet implemented.
+
+1. **Feed identity duplication.** Each feed class declares `name` and often
+   `category` as class attributes, and the registry declares them again.
+   `feeds/__init__.py` `build_feeds()` injects `interval` and `category` from
+   the registry but does *not* inject `name`, so a class whose `name` drifts
+   from the registry silently writes to the wrong cache key. Fix: the registry
+   is the single source of truth for name/interval/category/label;
+   `build_feeds()` injects all of them; classes stop declaring them. Small,
+   safe, removes a latent bug class. Also note `feeds/quakes.py` hardcodes
+   `category="QUAKE"` inside `Event(...)` instead of using `self.category`;
+   that should be fixed as part of the same change.
+
+2. **Registry as dataclass.** Replace `FEED_REGISTRY` plain dicts with a small
+   dataclass (with defaults) so a typo like `"intervla": 600` fails at import
+   time with a clear message, not at first poll with a `KeyError` deep in the
+   scheduler. Cheap, makes the registry self-documenting.
+
+3. **News coverage and syndication dedup.** Reuters RSS is currently 404ing
+   (already a known limitation), so velocity detection runs on two outlets.
+   Add one or two more RSS sources (AP, Guardian). Separately, deduplicate
+   syndicated stories (same headline, different `source_name`) before they
+   reach the velocity window, which fixes the known false-surge limitation
+   already recorded in this file.
+
+4. **Resolve the `/api/config` contradiction.** The File map lists
+   `/api/config` as exposed and `static/js/app.js` fetches it, but this
+   section previously said it is not exposed. Determine which is true, fix
+   whichever document is stale, and — if the endpoint exists — serve
+   `SEVERITY_MEDIUM` and `SEVERITY_HIGH` from it so `stream.js` and
+   `panels.js` stop hand-mirroring the thresholds. Small, fixes a real drift
+   risk.
+
+5. **ADS-B redundancy for flights and squawks.** Both feeds depend entirely
+   on adsb.lol, a community-run API with no SLA. `CONTEXT.md` already says
+   failures there are "almost always upstream." Add a fallback endpoint
+   (adsb.fi or OpenSky) used when adsb.lol errors. Medium effort: the payload
+   shapes differ between providers and mapping is needed. Its own issue, not
+   a cleanup.
+
+### Rejected from the external review (do not implement)
+
+These were considered and deliberately not adopted. Recording them so a
+future reviewer does not re-propose them.
+
+- **Metadata-driven frontend** (serve category color, symbol, and alert flag
+  from the registry via an API; build filter buttons and rendering from data).
+  Right diagnosis — a genuinely new category currently requires edits to
+  `CAT_COLOR`, `index.html`, audio triggers, and the full-date rule — but the
+  cost (new endpoint, new rendering-from-data path, migration of four
+  hardcoded maps) is only justified when a second genuinely new category
+  actually appears. Until then, adding a category to those four places in one
+  PR is the smaller, better change. Revisit if and when that second category
+  is proposed.
+
+- **`Event.alert: bool`** (feeds set a boolean at parse time; frontend uses it
+  instead of hardcoded tag/category rules for audio). Rejected: it duplicates
+  what severity already encodes for news, adds a field every feed must
+  populate, and introduces a second "is this loud?" concept alongside
+  severity. If audio triggers need to change, change the category rules
+  directly.
+
+- **Browser notifications for high-severity events.** The premise (the user
+  opens the app occasionally) is correct, but browser notifications only fire
+  when a tab is open, which weakens the premise. The genuinely useful version
+  is a server-side push (email, ntfy, Pushover, webhook), which adds an
+  outbound integration and config surface that this file keeps out by design.
+  Needs a written proposal before consideration, not a cleanup.
+
+- **`JsonApiFeed` intermediate base class** (own the request/error/packaging
+  flow; expose `url(s)` and `parse_item(item)` hooks). Correct diagnosis of
+  real duplication across `quakes`, `flares`, `squawks`, `neo`, `commodities`.
+  Not rejected on merit, but deferred: it is a refactor of working code with
+  regression risk and no visible payoff. Build it lazily when the next
+  JSON-shaped feed is added, and migrate existing feeds one at a time with
+  verification.
+
+- **Persistence for the velocity window and alert history.** The argument is
+  strong, but it is a reversal of this file's "in-memory only, restart = fresh
+  poll" decision, not a cleanup. If pursued, it needs its own issue, an
+  explicit `CONTEXT.md` update, a volume mount (the read-only container was
+  chosen to enforce no disk writes), and a decision between TinyDB (simple,
+  document-shaped) and DuckDB (queryable, analytical). Write-behind only:
+  feed threads keep writing to the in-memory cache, a separate writer
+  persists snapshots. Not now.
+
+- **Jinja2 for the dashboard.** See the new "Decisions" entry above.
+
+### Database, if pursued later
+
+If persistence is revisited, the two candidates worth considering are:
+
+- **TinyDB** — pure Python, single JSON file, document-oriented, no schema,
+  trivial to install. Natural shape for `Event` dicts. Recommended if the goal
+  is "remember things across restart."
+- **DuckDB** — embedded analytical engine with first-class JSON support.
+  Recommended if the goal is "query my own history" ("all M5+ quakes near
+  this point in six months", "which topics surged this week").
+
+Avoid a separate always-on service (Redis, MongoDB): it adds a second
+container to babysit on a home box and breaks the "one container, restart =
+fresh state" simplicity for no benefit at single-user scale.
+
+The pattern is write-behind regardless of choice: the in-memory cache remains
+the source of truth for the live app; a separate writer persists snapshots on
+an interval or on alert-tier events. A database hiccup must never take down a
+feed — that per-feed isolation rule is the most important constraint in this
+file.
 
 Known limitations from Layers 1-4 and issue #5:
 - `SEVERITY_CRISIS_EXTRA` terms are generic (`global`, `millions`, ...) and
