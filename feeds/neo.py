@@ -19,8 +19,6 @@ BASE_URL = "https://api.nasa.gov/neo/rest/v1/feed"
 
 
 class NeoFeed(Feed):
-    name = "neo"
-
     def fetch(self) -> FeedResult:
         try:
             start = utcnow().strftime("%Y-%m-%d")

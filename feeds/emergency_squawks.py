@@ -19,8 +19,6 @@ SQUAWK_LABELS = {
 
 
 class EmergencySquawksFeed(Feed):
-    name = "squawks"
-
     def fetch(self) -> FeedResult:
         events = []
 

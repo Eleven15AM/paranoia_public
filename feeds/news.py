@@ -20,8 +20,6 @@ log = logging.getLogger(__name__)
 
 
 class NewsFeed(Feed):
-    name = "news"
-
     def fetch(self) -> FeedResult:
         events = []
         seen_links = set()

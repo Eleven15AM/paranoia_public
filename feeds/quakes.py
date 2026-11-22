@@ -12,8 +12,6 @@ BASE_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 
 
 class QuakesFeed(Feed):
-    name = "quakes"
-
     def fetch(self) -> FeedResult:
         try:
             start = (utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -53,7 +51,7 @@ class QuakesFeed(Feed):
                 tags.append("TSUNAMI")
 
             events.append(Event(
-                category="QUAKE",
+                category=self.category,
                 title=title,
                 description=f"Depth {coords[2]:.0f} km. Source: USGS." if len(coords) > 2 and coords[2] is not None else "Source: USGS.",
                 timestamp=timestamp,

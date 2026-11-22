@@ -16,8 +16,6 @@ from feeds.base import Feed
 
 
 class FlightsFeed(Feed):
-    name = "flights"
-
     def fetch(self) -> FeedResult:
         try:
             resp = self._get(config.FLIGHTS_URL)

@@ -21,8 +21,6 @@ LABELS = {
 
 
 class CommoditiesFeed(Feed):
-    name = "commodities"
-
     def fetch(self) -> FeedResult:
         try:
             resp = self._get(BASE_URL, params={"codes": CODES})

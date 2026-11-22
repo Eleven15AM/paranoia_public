@@ -13,8 +13,6 @@ BASE_URL = "https://api.nasa.gov/DONKI/FLR"
 
 
 class FlaresFeed(Feed):
-    name = "flares"
-
     def fetch(self) -> FeedResult:
         try:
             # Last 3 days is enough for a 30-minute poll interval; overlap

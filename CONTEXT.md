@@ -97,7 +97,8 @@ config.py                  FEED_REGISTRY + all tunables
                            NEWS_FEED_URLS, NASA_API_KEY, SEVERITY_*,
                            VELOCITY_*, ALERTS_PANEL_LIMIT, GDELT_*, and
                            the two scoring functions score_headline /
-                           match_keywords)
+                           match_keywords). Single source of truth for feed
+                           identity (issue #7).
 
 core/models.py             Event, FeedResult dataclasses. Event is the
                            only shape the frontend ever sees.
@@ -108,11 +109,13 @@ core/velocity.py           In-memory rolling window of topic-key hits;
 core/gdelt.py              Best-effort GDELT cross-reference for high
                            severity NEWS/VELOCITY events (Layer 4).
 
+feeds/__init__.py          build_feeds(): resolves FEED_REGISTRY entries and
+                           injects name/interval/category; raises on drift.
 feeds/base.py              Feed ABC + classify_http_error() (issue #5).
 feeds/news.py              RSS/Atom via feedparser. Scores each headline
                            (Layer 1) and seeds velocity (Layer 2).
 feeds/flares.py            NASA DONKI FLR. 404 treated as healthy-but-empty.
-feeds/quakes.py            USGS GeoJSON.
+feeds/quakes.py            USGS GeoJSON. Category from self.category.
 feeds/flights.py           adsb.lol /v2/mil, filtered by type.
 feeds/neo.py               NASA NeoWs.
 feeds/commodities.py       OilPriceAPI demo.
@@ -219,9 +222,10 @@ Do not convert the existing page.
 
 ## What is currently in progress
 
-Layers 1-4, the feed-handling cleanup (issue #5), and the release process
-(issue #6) are implemented. Scoring, velocity, and GDELT are news-only;
-all other feeds emit `severity=0`, `gdelt=null`, and render unchanged.
+Layers 1-4, the feed-handling cleanup (issue #5), the release process
+(issue #6), and feed identity (issue #7) are implemented. Scoring, velocity,
+and GDELT are news-only; all other feeds emit `severity=0`, `gdelt=null`,
+and render unchanged.
 
 Layer 1: `Event.severity: int` (0-100, default 0). `config.score_headline()`
 and `config.match_keywords()` live in `config.py` so tuning is a data change.
@@ -264,16 +268,25 @@ local development. The published package is public; the workflow sets
 `org.opencontainers.image.source` so the package links back to the repo.
 Security flags are identical between the two compose files.
 
+Issue #7 (feed identity): `FEED_REGISTRY` is the single source of truth for
+`name`, `interval`, `category`, and `label`. `feeds/__init__.py`
+`build_feeds()` injects `name`, `interval`, and `category` on each instance
+and raises `RuntimeError` if any injected field disagrees with the registry
+entry. Feed classes no longer declare `name` (or `category`) as class
+attributes. `feeds/quakes.py` builds `Event` with `category=self.category`
+rather than a hardcoded string.
+
 Rendering: `stream.js` applies three severity tiers (high >70 red border +
 bold + `[PIN]` + sorted to top; medium 41-70 amber border; low <=40
 unchanged). News and velocity cards show the full date
 (`YYYY-MM-DD HH:MM:SSZ`); other feeds keep `HH:MM:SSZ`. The dossier shows a
 `GDELT:` row when present. ALERTS panel rows show `[GDELT: N]` when present.
 `panels.js` shows ALERTS (>70) and VELOCITY counts. Thresholds are mirrored
-in `stream.js` / `panels.js` — `api/routes.py` does not expose `/api/config`,
-so keep them in sync by hand.
+in `stream.js` / `panels.js` — `/api/config` exists and is fetched by
+`app.js`, but the frontend does not yet read thresholds from it (see the
+accepted review item on the `/api/config` contradiction).
 
-Known limitations from Layers 1-4 and issues #5-#6:
+Known limitations from Layers 1-4 and issues #5-#7:
 - `SEVERITY_CRISIS_EXTRA` terms are generic (`global`, `millions`, ...) and
   can add +25 to non-crisis headlines. Tune or remove in `config.py`.
 - Velocity counts distinct `source_name` as-is, so a syndicated story
@@ -286,36 +299,32 @@ Known limitations from Layers 1-4 and issues #5-#6:
   is expected behavior, not a bug.
 - Only `feeds/flares.py` currently uses `classify_http_error()`. Other feeds
   still treat every non-2xx as an error and may need the same treatment.
+- `adsb.lol` (flights and squawks) returns HTTP 429 under load. Community-run,
+  no SLA; failures are upstream and currently surface as feed errors. See
+  accepted review item on ADS-B redundancy.
+- The app runs under Flask's development server (`werkzeug` warns on every
+  start). Fine for a single-user home deployment; a production WSGI server
+  (gunicorn, waitress) would silence the warning and is a candidate
+  improvement, not yet scheduled.
 - Release images are `linux/amd64` only. If the target machine is ARM, add
   `linux/arm64` to the workflow's `platforms:` and expect a longer build.
 - GHCR packages default to private on first push. Visibility is a one-time
   manual toggle in Package settings; see README.
 
-No follow-up layer is currently scheduled. The accepted external-review items
-above are queued for future work when you choose to pick them up.
-
 ### Accepted from the external review (not yet implemented)
 
-An external code review was performed after issue #6. Several of its
-recommendations were accepted; several were rejected as incompatible with
-this file's documented decisions. The accepted items below are queued for
-future work, in rough priority order. They are not yet implemented.
+An external code review was performed after issue #6. Item 1 (feed identity
+duplication) was implemented as issue #7. The remaining accepted items below
+are queued for future work, in rough priority order.
 
-1. **Feed identity duplication.** Each feed class declares `name` and often
-   `category` as class attributes, and the registry declares them again.
-   `feeds/__init__.py` `build_feeds()` injects `interval` and `category` from
-   the registry but does *not* inject `name`, so a class whose `name` drifts
-   from the registry silently writes to the wrong cache key. Fix: the registry
-   is the single source of truth for name/interval/category/label;
-   `build_feeds()` injects all of them; classes stop declaring them. Small,
-   safe, removes a latent bug class. Also note `feeds/quakes.py` hardcodes
-   `category="QUAKE"` inside `Event(...)` instead of using `self.category`;
-   that should be fixed as part of the same change.
+1. ~~**Feed identity duplication.**~~ Implemented in issue #7.
 
 2. **Registry as dataclass.** Replace `FEED_REGISTRY` plain dicts with a small
    dataclass (with defaults) so a typo like `"intervla": 600` fails at import
    time with a clear message, not at first poll with a `KeyError` deep in the
-   scheduler. Cheap, makes the registry self-documenting.
+   scheduler. Cheap, makes the registry self-documenting. Note: issue #7 added
+   `REQUIRED_KEYS` validation in `build_feeds()`, which catches missing keys
+   but not typos that produce a wrong-but-present key.
 
 3. **News coverage and syndication dedup.** Reuters RSS is currently 404ing
    (already a known limitation), so velocity detection runs on two outlets.
@@ -325,19 +334,17 @@ future work, in rough priority order. They are not yet implemented.
    already recorded in this file.
 
 4. **Resolve the `/api/config` contradiction.** The File map lists
-   `/api/config` as exposed and `static/js/app.js` fetches it, but this
-   section previously said it is not exposed. Determine which is true, fix
-   whichever document is stale, and — if the endpoint exists — serve
-   `SEVERITY_MEDIUM` and `SEVERITY_HIGH` from it so `stream.js` and
-   `panels.js` stop hand-mirroring the thresholds. Small, fixes a real drift
-   risk.
+   `/api/config` as exposed and `static/js/app.js` fetches it, so the endpoint
+   exists. The frontend does not currently read `SEVERITY_MEDIUM` /
+   `SEVERITY_HIGH` from it; `stream.js` and `panels.js` hand-mirror the
+   values. Serve the thresholds through `/api/config` (if not already there)
+   and read them in the frontend, eliminating the drift risk. Small.
 
 5. **ADS-B redundancy for flights and squawks.** Both feeds depend entirely
-   on adsb.lol, a community-run API with no SLA. `CONTEXT.md` already says
-   failures there are "almost always upstream." Add a fallback endpoint
-   (adsb.fi or OpenSky) used when adsb.lol errors. Medium effort: the payload
-   shapes differ between providers and mapping is needed. Its own issue, not
-   a cleanup.
+   on adsb.lol, a community-run API with no SLA that returns HTTP 429 under
+   load. Add a fallback endpoint (adsb.fi or OpenSky) used when adsb.lol
+   errors. Medium effort: the payload shapes differ between providers and
+   mapping is needed. Its own issue, not a cleanup.
 
 ### Rejected from the external review (do not implement)
 
@@ -407,6 +414,9 @@ the source of truth for the live app; a separate writer persists snapshots on
 an interval or on alert-tier events. A database hiccup must never take down a
 feed — that per-feed isolation rule is the most important constraint in this
 file.
+
+No follow-up layer is currently scheduled. The accepted external-review items
+above are queued for future work when you choose to pick them up.
 
 Known limitations from Layers 1-4 and issue #5:
 - `SEVERITY_CRISIS_EXTRA` terms are generic (`global`, `millions`, ...) and
